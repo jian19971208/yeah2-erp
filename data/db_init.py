@@ -14,12 +14,10 @@ def get_user_db_path() -> Path:
 
 
 def init_database():
-    """初始化数据库（幂等，每次运行都安全）"""
     db_path = get_user_db_path()
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    # 创建客户表
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS customer (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,10 +43,32 @@ def init_database():
     );
     """)
 
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS inventory (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        stock_code TEXT NOT NULL,
+        stock_qty REAL NOT NULL DEFAULT 0.00,
+        stock_status TEXT NOT NULL,
+        product_code TEXT NOT NULL,
+        product_type TEXT,
+        wrist_circumference REAL,
+        weight_gram REAL,
+        price_per_gram REAL,
+        bead_diameter REAL,
+        unit_price REAL,
+        cost_price REAL,
+        sell_price REAL,
+        size TEXT,
+        color TEXT,
+        material TEXT,
+        element TEXT,
+        remark TEXT,
+        create_time TEXT,
+        update_by TEXT,
+        UNIQUE (product_code)
+    );
+    """)
     conn.commit()
     conn.close()
     print(f"✅ 数据库已初始化：{db_path}")
 
-
-if __name__ == "__main__":
-    init_database()
