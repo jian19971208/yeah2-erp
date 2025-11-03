@@ -2,6 +2,7 @@ import sqlite3
 import os
 from pathlib import Path
 
+
 def get_user_db_path() -> Path:
     """
     获取用户数据库路径：
@@ -18,6 +19,7 @@ def init_database():
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
+    # ===== 客户表 =====
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS customer (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,6 +45,7 @@ def init_database():
     );
     """)
 
+    # ===== 库存表 =====
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS inventory (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,11 +67,30 @@ def init_database():
         element TEXT,
         remark TEXT,
         create_time TEXT,
-        update_by TEXT,
+        update_time TEXT,
         UNIQUE (product_code)
     );
     """)
+
+    # ===== 订单表 =====
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS "order" (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_no TEXT NOT NULL,
+        order_status TEXT NOT NULL,
+        customer_id TEXT,
+        customer_name TEXT,
+        address TEXT,
+        express_no TEXT,
+        sell_price REAL,
+        cost_price REAL,
+        detail TEXT,
+        remark TEXT,
+        create_time,
+        update_time
+    );
+    """)
+
     conn.commit()
     conn.close()
     print(f"✅ 数据库已初始化：{db_path}")
-

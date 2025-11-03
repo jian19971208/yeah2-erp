@@ -52,20 +52,21 @@ class InventoryPage(ctk.CTkFrame):
         table_frame.pack(fill="both", expand=True, padx=10, pady=(5, 10))
 
         self.columns = [
-            "select", "copy", "stock_code", "stock_status", "product_code",
+            "select", "copy", "id", "stock_code", "stock_status", "product_code",
             "product_type", "stock_qty", "weight_gram", "cost_price", "price_per_gram",
             "sell_price", "size", "color", "material", "element", "remark",
-            "create_time", "update_by"
+            "create_time", "update_time"
         ]
         headers = [
-            "✔", "操作", "库存编号", "状态", "产品编号", "类型", "数量", "克重",
-            "成本价", "克价", "销售价", "尺寸", "颜色", "材质", "元素", "备注", "创建时间", "更新人"
+            "✔", "操作", "ID", "库存编号", "状态", "产品编号", "类型", "数量", "克重",
+            "成本价", "克价", "销售价", "尺寸", "颜色", "材质", "元素", "备注", "创建日期", "更新日期"
         ]
 
         self.tree = ttk.Treeview(table_frame, columns=self.columns, show="headings", height=10)
         for c, h in zip(self.columns, headers):
             self.tree.heading(c, text=h)
-            self.tree.column(c, width=160, anchor="center")
+            width = 160 if c not in ["select", "copy", "id"] else 80
+            self.tree.column(c, width=width, anchor="center")
 
         y_scroll = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
         x_scroll = ttk.Scrollbar(table_frame, orient="horizontal", command=self.tree.xview)
@@ -100,7 +101,7 @@ class InventoryPage(ctk.CTkFrame):
         for field, val in self.search_filters.items():
             if not val:
                 continue
-            if isinstance(val, dict):  # 范围
+            if isinstance(val, dict):
                 min_v, max_v = val.get("min"), val.get("max")
                 if min_v and max_v:
                     where.append(f"{field} BETWEEN ? AND ?")
@@ -111,7 +112,7 @@ class InventoryPage(ctk.CTkFrame):
                 elif max_v:
                     where.append(f"{field} <= ?")
                     params.append(max_v)
-            elif field in ["stock_code", "product_code"]:  # 精准匹配
+            elif field in ["stock_code", "product_code"]:
                 where.append(f"{field} = ?")
                 params.append(val)
             else:
@@ -130,7 +131,7 @@ class InventoryPage(ctk.CTkFrame):
         rows = self.cursor.fetchall()
 
         for r in rows:
-            self.tree.insert("", "end", values=("☐", "复制") + r[1:])
+            self.tree.insert("", "end", values=("☐", "复制") + r)
 
         self.page_label.configure(text=f"第 {self.current_page} / {self.total_pages} 页")
         self.total_label.configure(text=f"共 {total} 条记录")
@@ -175,14 +176,14 @@ class InventoryPage(ctk.CTkFrame):
             ("材质", "material", "text"),
             ("元素", "element", "text"),
             ("备注", "remark", "text"),
-            ("创建时间", "create_time", "range"),
-            ("更新人", "update_by", "text")
+            ("创建日期", "create_time", "range"),
+            ("更新日期", "update_time", "range")
         ]
 
         inputs = {}
         for i, (label, key, ftype) in enumerate(search_fields):
             ctk.CTkLabel(scroll, text=label, font=("微软雅黑", 16)).grid(row=i, column=0, padx=8, pady=6, sticky="e")
-            if ftype == "text" or ftype == "exact":
+            if ftype in ["text", "exact"]:
                 e = ctk.CTkEntry(scroll, width=240)
                 e.grid(row=i, column=1, padx=8, pady=6, sticky="w")
                 inputs[key] = {"type": ftype, "widget": e}
@@ -262,7 +263,7 @@ class InventoryPage(ctk.CTkFrame):
             return
         if messagebox.askyesno("确认删除", f"确定删除选中的 {len(self.selected_items)} 条记录？"):
             for sid in self.selected_items:
-                self.cursor.execute("DELETE FROM inventory WHERE stock_code=?", (sid,))
+                self.cursor.execute("DELETE FROM inventory WHERE id=?", (sid,))
             self.conn.commit()
             self.selected_items.clear()
             self.refresh_table()
@@ -270,7 +271,7 @@ class InventoryPage(ctk.CTkFrame):
     # ========== 新增 / 编辑 ==========
     def _open_edit_window(self, mode, sid=None):
         win = ctk.CTkToplevel(self)
-        win.geometry("520x720")
+        win.geometry("520x700")
         win.grab_set()
 
         if mode == "add":
@@ -278,7 +279,7 @@ class InventoryPage(ctk.CTkFrame):
             data = {}
         else:
             win.title("编辑库存")
-            self.cursor.execute("SELECT * FROM inventory WHERE stock_code=?", (sid,))
+            self.cursor.execute("SELECT * FROM inventory WHERE id=?", (sid,))
             r = self.cursor.fetchone()
             cols = [d[0] for d in self.cursor.description]
             data = dict(zip(cols, r))
@@ -323,7 +324,6 @@ class InventoryPage(ctk.CTkFrame):
                 e.grid(row=i, column=1, padx=10, pady=6, sticky="w")
                 entries[key] = e
 
-        # ======== 联动计算克价 ========
         def update_price(*args):
             try:
                 cost = float(entries["cost_price"].get() or 0)
@@ -338,47 +338,46 @@ class InventoryPage(ctk.CTkFrame):
         entries["cost_price"].bind("<KeyRelease>", update_price)
         entries["weight_gram"].bind("<KeyRelease>", update_price)
 
-        # ======== 保存按钮 ========
         def confirm():
             vals = {k: (v.get().strip() if isinstance(v, ctk.CTkEntry) else v.get()) for k, v in entries.items()}
             if not vals["product_code"] or not vals["stock_qty"]:
                 messagebox.showwarning("提示", "请填写必填项。")
                 return
-            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            now = datetime.datetime.now().strftime("%Y-%m-%d")  # ✅ 年月日
 
             if mode == "add":
                 self.cursor.execute("""
                     INSERT INTO inventory (
                         stock_code, stock_status, product_code, stock_qty, product_type,
                         weight_gram, cost_price, price_per_gram, sell_price, size, color,
-                        material, element, remark, create_time, update_by
+                        material, element, remark, create_time, update_time
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     vals["stock_code"], vals["stock_status"], vals["product_code"], vals["stock_qty"],
                     vals["product_type"], vals["weight_gram"], vals["cost_price"], vals["price_per_gram"],
                     vals["sell_price"], vals["size"], vals["color"], vals["material"], vals["element"],
-                    vals["remark"], now, "system"
+                    vals["remark"], now, now
                 ))
             else:
                 self.cursor.execute("""
                     UPDATE inventory SET
                         stock_status=?, product_code=?, stock_qty=?, product_type=?, weight_gram=?,
                         cost_price=?, price_per_gram=?, sell_price=?, size=?, color=?, material=?,
-                        element=?, remark=?, update_by=?, create_time=? WHERE stock_code=?
+                        element=?, remark=?, update_time=? WHERE id=?
                 """, (
                     vals["stock_status"], vals["product_code"], vals["stock_qty"], vals["product_type"],
                     vals["weight_gram"], vals["cost_price"], vals["price_per_gram"], vals["sell_price"],
                     vals["size"], vals["color"], vals["material"], vals["element"], vals["remark"],
-                    "system", now, vals["stock_code"]
+                    now, sid
                 ))
             self.conn.commit()
             win.destroy()
             self.refresh_table()
 
-        ctk.CTkButton(win, text="确定", fg_color="#2B6CB0", command=confirm).grid(row=len(fields)+1, column=1, pady=20)
-        ctk.CTkButton(win, text="取消", fg_color="#A0AEC0", command=win.destroy).grid(row=len(fields)+1, column=0, pady=20)
+        ctk.CTkButton(win, text="确定", fg_color="#2B6CB0", command=confirm).grid(
+            row=len(fields)+1, column=1, pady=20
+        )
 
-    # ========== 自动生成库存编号 ==========
     def _generate_stock_code(self):
         today = datetime.datetime.now().strftime("%Y%m%d")
         prefix = f"STK{today}"

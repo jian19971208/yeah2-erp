@@ -9,6 +9,7 @@ from data.db_init import get_user_db_path
 DB_PATH = get_user_db_path()
 PAGE_SIZE = 10
 
+
 class CustomerPage(ctk.CTkFrame):
     def __init__(self, parent):
         super().__init__(parent, fg_color="#F7F9FC")
@@ -20,7 +21,6 @@ class CustomerPage(ctk.CTkFrame):
         self.selected_items = set()
         self.search_filters = {}
 
-        # ======== 表格样式 ========
         style = ttk.Style()
         style.configure("Treeview", font=("微软雅黑", 18), rowheight=36)
         style.configure("Treeview.Heading", font=("微软雅黑", 20, "bold"))
@@ -46,22 +46,22 @@ class CustomerPage(ctk.CTkFrame):
         self.filter_label.pack(side="left", anchor="w", padx=5)
         self.filter_frame.pack_forget()
 
-        # ======== 表格区域 ========
+        # ======== 表格 ========
         table_frame = ctk.CTkFrame(self, fg_color="#FFFFFF")
         table_frame.pack(fill="both", expand=True, padx=10, pady=(5, 10))
 
         self.columns = [
-            "select", "copy", "customer_name", "customer_status", "customer_phone", "customer_address",
+            "select", "copy", "id", "customer_name", "customer_status", "customer_phone", "customer_address",
             "customer_email", "wrist_circumference", "source_platform", "source_account",
             "wechat_account", "qq_account", "last_purchase_date", "total_purchase_amount",
             "last_return_date", "total_return_amount", "purchase_times", "return_times",
             "remark", "create_time", "update_time"
         ]
         headers = [
-            "✔", "操作", "名称", "状态", "电话", "地址", "邮箱", "手围",
+            "✔", "操作", "ID", "名称", "状态", "电话", "地址", "邮箱", "手围",
             "来源平台", "来源账号", "微信", "QQ",
             "最近购买", "总采购额", "最近退货", "总退货额",
-            "购买次数", "退货次数", "备注", "创建时间", "更新时间"
+            "购买次数", "退货次数", "备注", "创建日期", "更新日期"
         ]
 
         self.tree = ttk.Treeview(table_frame, columns=self.columns, show="headings", height=10)
@@ -97,8 +97,7 @@ class CustomerPage(ctk.CTkFrame):
             self.tree.delete(row)
 
         base_sql = "SELECT * FROM customer"
-        params = []
-        where = []
+        params, where = [], []
 
         for field, val in self.search_filters.items():
             if not val:
@@ -130,36 +129,10 @@ class CustomerPage(ctk.CTkFrame):
         rows = self.cursor.fetchall()
 
         for r in rows:
-            self.tree.insert("", "end", values=("☐", "复制") + r[1:])
+            self.tree.insert("", "end", values=("☐", "复制") + r)
 
         self.page_label.configure(text=f"第 {self.current_page} / {self.total_pages} 页")
         self.total_label.configure(text=f"共 {total} 条记录")
-
-        field_map = {
-            "customer_name": "名称",
-            "customer_status": "状态",
-            "customer_phone": "电话",
-            "source_platform": "来源平台",
-            "wechat_account": "微信号",
-            "qq_account": "QQ号",
-            "last_purchase_date": "最近购买",
-            "total_purchase_amount": "总采购额",
-            "last_return_date": "最近退货",
-            "total_return_amount": "总退货额",
-            "purchase_times": "购买次数",
-            "return_times": "退货次数"
-        }
-
-        if self.search_filters:
-            txt = "当前筛选：" + ", ".join(
-                f"{field_map.get(k, k)}={v.get('min','')}~{v.get('max','')}" if isinstance(v, dict)
-                else f"{field_map.get(k, k)}={v}"
-                for k, v in self.search_filters.items()
-            )
-            self.filter_label.configure(text=txt)
-            self.filter_frame.pack(fill="x", padx=15, pady=(0, 5))
-        else:
-            self.filter_frame.pack_forget()
 
     # ========== 重置 ==========
     def reset_filters(self):
@@ -225,15 +198,15 @@ class CustomerPage(ctk.CTkFrame):
 
         ctk.CTkButton(win, text="确定", width=120, fg_color="#2B6CB0", command=confirm).pack(pady=10)
 
-    # ========== 勾选或复制 ==========
+    # ========== 勾选/复制 ==========
     def toggle_select(self, event):
         item_id = self.tree.identify_row(event.y)
         col = self.tree.identify_column(event.x)
         if not item_id:
             return
         vals = list(self.tree.item(item_id, "values"))
+        cid = vals[2]
 
-        # 点击复制列
         if col == "#2":
             copied = "\n".join(f"{h}: {v}" for h, v in zip(self.tree["columns"][2:], vals[2:]))
             pyperclip.copy(copied)
@@ -242,10 +215,10 @@ class CustomerPage(ctk.CTkFrame):
 
         if vals[0] == "☐":
             vals[0] = "☑"
-            self.selected_items.add(vals[2])
+            self.selected_items.add(cid)
         else:
             vals[0] = "☐"
-            self.selected_items.discard(vals[2])
+            self.selected_items.discard(cid)
         self.tree.item(item_id, values=vals)
 
     # ========== 分页 ==========
@@ -281,7 +254,7 @@ class CustomerPage(ctk.CTkFrame):
             self.selected_items.clear()
             self.refresh_table()
 
-    # ========== 新增/编辑窗口 ==========
+    # ========== 新增/编辑 ==========
     def _open_edit_window(self, mode, cid=None):
         win = ctk.CTkToplevel(self)
         win.geometry("480x640")
@@ -289,13 +262,17 @@ class CustomerPage(ctk.CTkFrame):
 
         if mode == "add":
             win.title("新增客户")
-            data = {f: "" for f in ["customer_name", "customer_status", "customer_phone", "customer_address",
+            data = {f: "" for f in ["customer_name", "customer_phone", "customer_address",
                                     "customer_email", "wrist_circumference", "source_platform", "source_account",
                                     "wechat_account", "qq_account", "remark"]}
+            data["customer_status"] = "启用"  # 默认状态
         else:
             win.title("编辑客户")
             self.cursor.execute("SELECT * FROM customer WHERE id=?", (cid,))
             r = self.cursor.fetchone()
+            if not r:
+                messagebox.showerror("错误", "未找到该客户记录")
+                return
             data = dict(zip(
                 ["id", "customer_name", "customer_status", "customer_phone", "customer_address", "customer_email",
                  "wrist_circumference", "source_platform", "source_account", "wechat_account", "qq_account",
@@ -335,7 +312,7 @@ class CustomerPage(ctk.CTkFrame):
             if not vals["customer_name"]:
                 messagebox.showwarning("提示", "客户名称不能为空")
                 return
-            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            now = datetime.datetime.now().strftime("%Y-%m-%d")  # ✅ 年月日格式
 
             if mode == "add":
                 self.cursor.execute("""
@@ -364,5 +341,6 @@ class CustomerPage(ctk.CTkFrame):
             win.destroy()
             self.refresh_table()
 
-        ctk.CTkButton(win, text="确定", fg_color="#2B6CB0", command=confirm).grid(row=len(fields)+1, column=1, pady=20)
-        ctk.CTkButton(win, text="取消", fg_color="#A0AEC0", command=win.destroy).grid(row=len(fields)+1, column=0, pady=20)
+        ctk.CTkButton(win, text="确定", fg_color="#2B6CB0", width=120, command=confirm).grid(
+            row=len(fields) + 1, columnspan=2, pady=20
+        )
