@@ -22,8 +22,8 @@ class CustomerPage(ctk.CTkFrame):
         self.search_filters = {}
 
         style = ttk.Style()
-        style.configure("Treeview", font=("微软雅黑", 18), rowheight=36)
-        style.configure("Treeview.Heading", font=("微软雅黑", 20, "bold"))
+        style.configure("Treeview", font=("微软雅黑", 20), rowheight=36)
+        style.configure("Treeview.Heading", font=("微软雅黑", 22, "bold"))
 
         # ======== 工具栏 ========
         toolbar = ctk.CTkFrame(self, fg_color="#F7F9FC")
