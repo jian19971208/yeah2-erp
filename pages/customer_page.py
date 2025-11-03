@@ -3,6 +3,7 @@ import math
 import datetime
 import customtkinter as ctk
 from tkinter import ttk, messagebox
+import pyperclip
 from data.db_init import get_user_db_path
 
 DB_PATH = get_user_db_path()
@@ -21,8 +22,8 @@ class CustomerPage(ctk.CTkFrame):
 
         # ======== 表格样式 ========
         style = ttk.Style()
-        style.configure("Treeview", font=("微软雅黑", 20), rowheight=38)
-        style.configure("Treeview.Heading", font=("微软雅黑", 22, "bold"))
+        style.configure("Treeview", font=("微软雅黑", 18), rowheight=36)
+        style.configure("Treeview.Heading", font=("微软雅黑", 20, "bold"))
 
         # ======== 工具栏 ========
         toolbar = ctk.CTkFrame(self, fg_color="#F7F9FC")
@@ -34,8 +35,6 @@ class CustomerPage(ctk.CTkFrame):
                       command=self.edit_customer).pack(side="left", padx=5)
         ctk.CTkButton(toolbar, text="🗑 删除客户", width=140, fg_color="#E53E3E",
                       command=self.delete_customer).pack(side="left", padx=5)
-
-        # ✅ 新增刷新按钮（调用 reset_filters）
         ctk.CTkButton(toolbar, text="🔄 刷新", width=120, fg_color="#A0AEC0",
                       command=self.reset_filters).pack(side="right", padx=5)
         ctk.CTkButton(toolbar, text="🔍 搜索", width=140, fg_color="#4A5568",
@@ -45,8 +44,6 @@ class CustomerPage(ctk.CTkFrame):
         self.filter_frame = ctk.CTkFrame(self, fg_color="#F7F9FC")
         self.filter_label = ctk.CTkLabel(self.filter_frame, text="", font=("微软雅黑", 16), text_color="#555")
         self.filter_label.pack(side="left", anchor="w", padx=5)
-        ctk.CTkButton(self.filter_frame, text="重置搜索", width=120, fg_color="#A0AEC0",
-                      command=self.reset_filters).pack(side="right", padx=5)
         self.filter_frame.pack_forget()
 
         # ======== 表格区域 ========
@@ -54,14 +51,14 @@ class CustomerPage(ctk.CTkFrame):
         table_frame.pack(fill="both", expand=True, padx=10, pady=(5, 10))
 
         self.columns = [
-            "select", "id", "customer_name", "customer_status", "customer_phone", "customer_address",
+            "select", "copy", "customer_name", "customer_status", "customer_phone", "customer_address",
             "customer_email", "wrist_circumference", "source_platform", "source_account",
             "wechat_account", "qq_account", "last_purchase_date", "total_purchase_amount",
             "last_return_date", "total_return_amount", "purchase_times", "return_times",
             "remark", "create_time", "update_time"
         ]
         headers = [
-            "✔", "ID", "名称", "状态", "电话", "地址", "邮箱", "手围",
+            "✔", "操作", "名称", "状态", "电话", "地址", "邮箱", "手围",
             "来源平台", "来源账号", "微信", "QQ",
             "最近购买", "总采购额", "最近退货", "总退货额",
             "购买次数", "退货次数", "备注", "创建时间", "更新时间"
@@ -70,7 +67,7 @@ class CustomerPage(ctk.CTkFrame):
         self.tree = ttk.Treeview(table_frame, columns=self.columns, show="headings", height=10)
         for c, h in zip(self.columns, headers):
             self.tree.heading(c, text=h)
-            self.tree.column(c, width=180, anchor="center")
+            self.tree.column(c, width=160, anchor="center")
 
         y_scroll = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
         x_scroll = ttk.Scrollbar(table_frame, orient="horizontal", command=self.tree.xview)
@@ -133,14 +130,30 @@ class CustomerPage(ctk.CTkFrame):
         rows = self.cursor.fetchall()
 
         for r in rows:
-            self.tree.insert("", "end", values=("☐",) + r)
+            self.tree.insert("", "end", values=("☐", "复制") + r[1:])
 
         self.page_label.configure(text=f"第 {self.current_page} / {self.total_pages} 页")
         self.total_label.configure(text=f"共 {total} 条记录")
 
+        field_map = {
+            "customer_name": "名称",
+            "customer_status": "状态",
+            "customer_phone": "电话",
+            "source_platform": "来源平台",
+            "wechat_account": "微信号",
+            "qq_account": "QQ号",
+            "last_purchase_date": "最近购买",
+            "total_purchase_amount": "总采购额",
+            "last_return_date": "最近退货",
+            "total_return_amount": "总退货额",
+            "purchase_times": "购买次数",
+            "return_times": "退货次数"
+        }
+
         if self.search_filters:
             txt = "当前筛选：" + ", ".join(
-                f"{k}={v.get('min','')}~{v.get('max','')}" if isinstance(v, dict) else f"{k}={v}"
+                f"{field_map.get(k, k)}={v.get('min','')}~{v.get('max','')}" if isinstance(v, dict)
+                else f"{field_map.get(k, k)}={v}"
                 for k, v in self.search_filters.items()
             )
             self.filter_label.configure(text=txt)
@@ -148,20 +161,20 @@ class CustomerPage(ctk.CTkFrame):
         else:
             self.filter_frame.pack_forget()
 
-    # ========== 外层重置 ==========
+    # ========== 重置 ==========
     def reset_filters(self):
         self.search_filters.clear()
         self.current_page = 1
         self.refresh_table()
 
-    # ========== 搜索弹窗 ==========
+    # ========== 搜索 ==========
     def open_search_window(self):
         win = ctk.CTkToplevel(self)
         win.title("搜索客户")
-        win.geometry("420x480")
+        win.geometry("520x520")
         win.grab_set()
 
-        scroll = ctk.CTkScrollableFrame(win, width=400, height=400, fg_color="#FFFFFF")
+        scroll = ctk.CTkScrollableFrame(win, width=500, height=460, fg_color="#FFFFFF")
         scroll.pack(fill="both", expand=True, padx=10, pady=10)
 
         search_fields = [
@@ -183,12 +196,12 @@ class CustomerPage(ctk.CTkFrame):
         for i, (label, key, ftype) in enumerate(search_fields):
             ctk.CTkLabel(scroll, text=label, font=("微软雅黑", 16)).grid(row=i, column=0, padx=8, pady=6, sticky="e")
             if ftype == "text":
-                e = ctk.CTkEntry(scroll, width=220)
+                e = ctk.CTkEntry(scroll, width=240)
                 e.grid(row=i, column=1, padx=8, pady=6, sticky="w")
                 inputs[key] = {"type": "text", "widget": e}
             else:
-                f1 = ctk.CTkEntry(scroll, width=100, placeholder_text="从")
-                f2 = ctk.CTkEntry(scroll, width=100, placeholder_text="到")
+                f1 = ctk.CTkEntry(scroll, width=110, placeholder_text="从")
+                f2 = ctk.CTkEntry(scroll, width=110, placeholder_text="到")
                 f1.grid(row=i, column=1, padx=(0, 5), pady=6, sticky="w")
                 f2.grid(row=i, column=2, padx=(0, 5), pady=6, sticky="w")
                 inputs[key] = {"type": "range", "widget": (f1, f2)}
@@ -212,18 +225,27 @@ class CustomerPage(ctk.CTkFrame):
 
         ctk.CTkButton(win, text="确定", width=120, fg_color="#2B6CB0", command=confirm).pack(pady=10)
 
-    # ========== 勾选 ==========
+    # ========== 勾选或复制 ==========
     def toggle_select(self, event):
         item_id = self.tree.identify_row(event.y)
+        col = self.tree.identify_column(event.x)
         if not item_id:
             return
         vals = list(self.tree.item(item_id, "values"))
+
+        # 点击复制列
+        if col == "#2":
+            copied = "\n".join(f"{h}: {v}" for h, v in zip(self.tree["columns"][2:], vals[2:]))
+            pyperclip.copy(copied)
+            messagebox.showinfo("复制成功", "该行数据已复制到剪贴板。")
+            return
+
         if vals[0] == "☐":
             vals[0] = "☑"
-            self.selected_items.add(vals[1])
+            self.selected_items.add(vals[2])
         else:
             vals[0] = "☐"
-            self.selected_items.discard(vals[1])
+            self.selected_items.discard(vals[2])
         self.tree.item(item_id, values=vals)
 
     # ========== 分页 ==========
@@ -237,7 +259,7 @@ class CustomerPage(ctk.CTkFrame):
             self.current_page += 1
             self.refresh_table()
 
-    # ========== 新增、编辑、删除 ==========
+    # ========== CRUD ==========
     def add_customer(self):
         self._open_edit_window("add")
 
