@@ -1,10 +1,13 @@
-import sqlite3
-import math
 import datetime
+import math
+import sqlite3
+from tkinter import ttk, messagebox, Menu
+
 import customtkinter as ctk
-from tkinter import ttk, messagebox
 import pyperclip
+
 from data.db_init import get_user_db_path
+from pages.setting_page import get_table_settings
 
 DB_PATH = get_user_db_path()
 PAGE_SIZE = 10
@@ -21,9 +24,15 @@ class CustomerPage(ctk.CTkFrame):
         self.selected_items = set()
         self.search_filters = {}
 
+        # 获取表格设置
+        settings = get_table_settings()
+        content_font_size = settings.get("table_content_font_size", 20)
+        heading_font_size = settings.get("table_heading_font_size", 22)
+        row_height = settings.get("table_row_height", 36)
+
         style = ttk.Style()
-        style.configure("Treeview", font=("微软雅黑", 20), rowheight=36)
-        style.configure("Treeview.Heading", font=("微软雅黑", 22, "bold"))
+        style.configure("Treeview", font=("微软雅黑", content_font_size), rowheight=row_height)
+        style.configure("Treeview.Heading", font=("微软雅黑", heading_font_size, "bold"))
 
         # ======== 工具栏 ========
         toolbar = ctk.CTkFrame(self, fg_color="#F7F9FC")
@@ -51,14 +60,14 @@ class CustomerPage(ctk.CTkFrame):
         table_frame.pack(fill="both", expand=True, padx=10, pady=(5, 10))
 
         self.columns = [
-            "select", "copy", "id", "customer_name", "customer_status", "customer_phone", "customer_address",
+            "select", "id", "customer_name", "customer_status", "customer_phone", "customer_address",
             "customer_email", "wrist_circumference", "source_platform", "source_account",
             "wechat_account", "qq_account", "last_purchase_date", "total_purchase_amount",
             "last_return_date", "total_return_amount", "purchase_times", "return_times",
             "remark", "create_time", "update_time"
         ]
         headers = [
-            "✔", "操作", "ID", "名称", "状态", "电话", "地址", "邮箱", "手围",
+            "✔", "ID", "名称", "状态", "电话", "地址", "邮箱", "手围",
             "来源平台", "来源账号", "微信", "QQ",
             "最近购买", "总采购额", "最近退货", "总退货额",
             "购买次数", "退货次数", "备注", "创建日期", "更新日期"
@@ -66,7 +75,11 @@ class CustomerPage(ctk.CTkFrame):
 
         self.tree = ttk.Treeview(table_frame, columns=self.columns, show="headings", height=10)
         for c, h in zip(self.columns, headers):
-            self.tree.heading(c, text=h)
+            if c == "select":
+                # 勾选列头绑定全选功能
+                self.tree.heading(c, text=h, command=self.toggle_select_all)
+            else:
+                self.tree.heading(c, text=h)
             self.tree.column(c, width=160, anchor="center")
 
         y_scroll = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
@@ -76,6 +89,7 @@ class CustomerPage(ctk.CTkFrame):
         x_scroll.pack(side="bottom", fill="x")
         self.tree.pack(fill="both", expand=True)
         self.tree.bind("<ButtonRelease-1>", self.toggle_select)
+        self.tree.bind("<Button-3>", self.show_context_menu)  # 右键菜单
 
         # ======== 分页 ========
         self.page_frame = ctk.CTkFrame(self, fg_color="#F7F9FC")
@@ -129,7 +143,9 @@ class CustomerPage(ctk.CTkFrame):
         rows = self.cursor.fetchall()
 
         for r in rows:
-            self.tree.insert("", "end", values=("☐", "复制") + r)
+            # 处理 None 值
+            display_values = tuple("" if val is None else str(val) for val in r)
+            self.tree.insert("", "end", values=("☐",) + display_values)
 
         self.page_label.configure(text=f"第 {self.current_page} / {self.total_pages} 页")
         self.total_label.configure(text=f"共 {total} 条记录")
@@ -144,10 +160,10 @@ class CustomerPage(ctk.CTkFrame):
     def open_search_window(self):
         win = ctk.CTkToplevel(self)
         win.title("搜索客户")
-        win.geometry("520x520")
+        win.geometry("520x600")
         win.grab_set()
 
-        scroll = ctk.CTkScrollableFrame(win, width=500, height=460, fg_color="#FFFFFF")
+        scroll = ctk.CTkScrollableFrame(win, width=500, height=540, fg_color="#FFFFFF")
         scroll.pack(fill="both", expand=True, padx=10, pady=10)
 
         search_fields = [
@@ -162,7 +178,9 @@ class CustomerPage(ctk.CTkFrame):
             ("最近退货日期", "last_return_date", "range"),
             ("总退货额", "total_return_amount", "range"),
             ("购买次数", "purchase_times", "range"),
-            ("退货次数", "return_times", "range")
+            ("退货次数", "return_times", "range"),
+            ("创建日期", "create_time", "range"),
+            ("更新日期", "update_time", "range")
         ]
 
         inputs = {}
@@ -170,13 +188,15 @@ class CustomerPage(ctk.CTkFrame):
             ctk.CTkLabel(scroll, text=label, font=("微软雅黑", 16)).grid(row=i, column=0, padx=8, pady=6, sticky="e")
             if ftype == "text":
                 e = ctk.CTkEntry(scroll, width=240)
-                e.grid(row=i, column=1, padx=8, pady=6, sticky="w")
+                e.grid(row=i, column=1, padx=8, pady=6, sticky="w", columnspan=3)
                 inputs[key] = {"type": "text", "widget": e}
             else:
-                f1 = ctk.CTkEntry(scroll, width=110, placeholder_text="从")
-                f2 = ctk.CTkEntry(scroll, width=110, placeholder_text="到")
-                f1.grid(row=i, column=1, padx=(0, 5), pady=6, sticky="w")
-                f2.grid(row=i, column=2, padx=(0, 5), pady=6, sticky="w")
+                # 范围查询：从 - 到
+                f1 = ctk.CTkEntry(scroll, width=100, placeholder_text="从")
+                f1.grid(row=i, column=1, padx=(8, 2), pady=6, sticky="w")
+                ctk.CTkLabel(scroll, text="-", font=("微软雅黑", 16)).grid(row=i, column=2, padx=2, pady=6)
+                f2 = ctk.CTkEntry(scroll, width=100, placeholder_text="到")
+                f2.grid(row=i, column=3, padx=(2, 8), pady=6, sticky="w")
                 inputs[key] = {"type": "range", "widget": (f1, f2)}
 
         def confirm():
@@ -198,20 +218,113 @@ class CustomerPage(ctk.CTkFrame):
 
         ctk.CTkButton(win, text="确定", width=120, fg_color="#2B6CB0", command=confirm).pack(pady=10)
 
-    # ========== 勾选/复制 ==========
+    # ========== 全选/取消全选 ==========
+    def toggle_select_all(self):
+        """全选或取消全选当前页所有数据"""
+        all_items = self.tree.get_children()
+        if not all_items:
+            return
+        
+        # 检查是否所有项都已选中
+        all_selected = all(self.tree.item(item, "values")[0] == "☑" for item in all_items)
+        
+        if all_selected:
+            # 取消全选
+            for item in all_items:
+                vals = list(self.tree.item(item, "values"))
+                cid = vals[1]  # ID 在第2列
+                vals[0] = "☐"
+                self.tree.item(item, values=vals)
+                self.selected_items.discard(cid)
+        else:
+            # 全选
+            for item in all_items:
+                vals = list(self.tree.item(item, "values"))
+                cid = vals[1]  # ID 在第2列
+                vals[0] = "☑"
+                self.tree.item(item, values=vals)
+                self.selected_items.add(cid)
+    
+    # ========== 右键菜单 ==========
+    def show_context_menu(self, event):
+        """显示右键菜单"""
+        # 识别点击的行和列
+        item_id = self.tree.identify_row(event.y)
+        col_id = self.tree.identify_column(event.x)
+        
+        if not item_id or not col_id:
+            return
+        
+        # 选中该行
+        self.tree.selection_set(item_id)
+        
+        # 获取单元格内容
+        col_index = int(col_id.replace("#", "")) - 1
+        values = self.tree.item(item_id, "values")
+        
+        if col_index < len(values):
+            cell_value = values[col_index]
+            
+            # 创建右键菜单
+            context_menu = Menu(self.tree, tearoff=0)
+            context_menu.add_command(
+                label=f"📋 复制单元格内容",
+                command=lambda: self.copy_cell(cell_value)
+            )
+            context_menu.add_command(
+                label="📄 复制整行数据",
+                command=lambda: self.copy_row(values)
+            )
+            context_menu.add_separator()
+            context_menu.add_command(
+                label="❌ 取消",
+                command=lambda: context_menu.unpost()
+            )
+            
+            # 显示菜单
+            try:
+                context_menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                context_menu.grab_release()
+    
+    def copy_cell(self, cell_value):
+        """复制单元格内容"""
+        pyperclip.copy(str(cell_value))
+        messagebox.showinfo("复制成功", f"已复制: {cell_value}")
+    
+    def copy_row(self, values):
+        """复制整行数据"""
+        # 获取表头的中文名称
+        headers = [
+            "✔", "ID", "名称", "状态", "电话", "地址", "邮箱", "手围",
+            "来源平台", "来源账号", "微信", "QQ",
+            "最近购买", "总采购额", "最近退货", "总退货额",
+            "购买次数", "退货次数", "备注", "创建日期", "更新日期"
+        ]
+        
+        # 跳过勾选列，从第二列开始复制
+        lines = []
+        for h, v in zip(headers[1:], values[1:]):  # 跳过 "✔" 列
+            if v:  # 只复制有值的字段
+                lines.append(f"{h}: {v}")
+        
+        copied = "\n".join(lines)
+        pyperclip.copy(copied)
+        messagebox.showinfo("复制成功", "整行数据已复制到剪贴板")
+    
+    # ========== 勾选 ==========
     def toggle_select(self, event):
         item_id = self.tree.identify_row(event.y)
         col = self.tree.identify_column(event.x)
         if not item_id:
             return
-        vals = list(self.tree.item(item_id, "values"))
-        cid = vals[2]
-
-        if col == "#2":
-            copied = "\n".join(f"{h}: {v}" for h, v in zip(self.tree["columns"][2:], vals[2:]))
-            pyperclip.copy(copied)
-            messagebox.showinfo("复制成功", "该行数据已复制到剪贴板。")
+        
+        # 只处理勾选列（第一列）
+        if col != "#1":
             return
+        
+        vals = list(self.tree.item(item_id, "values"))
+        cid = vals[1]  # ID 在第2列
 
         if vals[0] == "☐":
             vals[0] = "☑"
@@ -312,7 +425,7 @@ class CustomerPage(ctk.CTkFrame):
             if not vals["customer_name"]:
                 messagebox.showwarning("提示", "客户名称不能为空")
                 return
-            now = datetime.datetime.now().strftime("%Y-%m-%d")  # ✅ 年月日格式
+            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             if mode == "add":
                 self.cursor.execute("""

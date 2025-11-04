@@ -1,10 +1,13 @@
-import sqlite3
-import math
 import datetime
+import math
+import sqlite3
+from tkinter import ttk, messagebox, Menu
+
 import customtkinter as ctk
-from tkinter import ttk, messagebox
 import pyperclip
+
 from data.db_init import get_user_db_path
+from pages.setting_page import get_table_settings
 
 DB_PATH = get_user_db_path()
 PAGE_SIZE = 10
@@ -21,10 +24,16 @@ class InventoryPage(ctk.CTkFrame):
         self.selected_items = set()
         self.search_filters = {}
 
+        # 获取表格设置
+        settings = get_table_settings()
+        content_font_size = settings.get("table_content_font_size", 20)
+        heading_font_size = settings.get("table_heading_font_size", 22)
+        row_height = settings.get("table_row_height", 36)
+
         # ======== 样式 ========
         style = ttk.Style()
-        style.configure("Treeview", font=("微软雅黑", 20), rowheight=36)
-        style.configure("Treeview.Heading", font=("微软雅黑", 22, "bold"))
+        style.configure("Treeview", font=("微软雅黑", content_font_size), rowheight=row_height)
+        style.configure("Treeview.Heading", font=("微软雅黑", heading_font_size, "bold"))
 
         # ======== 工具栏 ========
         toolbar = ctk.CTkFrame(self, fg_color="#F7F9FC")
@@ -52,21 +61,25 @@ class InventoryPage(ctk.CTkFrame):
         table_frame.pack(fill="both", expand=True, padx=10, pady=(5, 10))
 
         self.columns = [
-            "select", "copy", "id", "stock_code", "stock_status", "product_code",
+            "select", "stock_code", "stock_status", "product_code",
             "product_type", "stock_qty", "weight_gram", "cost_price", "price_per_gram",
             "sell_price", "size", "color", "material", "element", "remark",
             "create_time", "update_time"
         ]
         headers = [
-            "✔", "操作", "ID", "库存编号", "状态", "产品编号", "类型", "数量", "克重",
+            "✔", "库存编号", "状态", "产品编号", "类型", "数量", "克重",
             "成本价", "克价", "销售价", "尺寸", "颜色", "材质", "元素", "备注", "创建日期", "更新日期"
         ]
 
         self.tree = ttk.Treeview(table_frame, columns=self.columns, show="headings", height=10)
         for c, h in zip(self.columns, headers):
-            self.tree.heading(c, text=h)
-            width = 160 if c not in ["select", "copy", "id"] else 80
-            self.tree.column(c, width=width, anchor="center")
+            if c == "select":
+                # 勾选列头绑定全选功能
+                self.tree.heading(c, text=h, command=self.toggle_select_all)
+                self.tree.column(c, width=80, anchor="center")
+            else:
+                self.tree.heading(c, text=h)
+                self.tree.column(c, width=160, anchor="center")
 
         y_scroll = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
         x_scroll = ttk.Scrollbar(table_frame, orient="horizontal", command=self.tree.xview)
@@ -75,6 +88,7 @@ class InventoryPage(ctk.CTkFrame):
         x_scroll.pack(side="bottom", fill="x")
         self.tree.pack(fill="both", expand=True)
         self.tree.bind("<ButtonRelease-1>", self.toggle_select)
+        self.tree.bind("<Button-3>", self.show_context_menu)  # 右键菜单
 
         # ======== 分页 ========
         self.page_frame = ctk.CTkFrame(self, fg_color="#F7F9FC")
@@ -131,7 +145,36 @@ class InventoryPage(ctk.CTkFrame):
         rows = self.cursor.fetchall()
 
         for r in rows:
-            self.tree.insert("", "end", values=("☐", "复制") + r)
+            # 数据库字段顺序：id, stock_code, stock_qty, stock_status, product_code, product_type, 
+            #               wrist_circumference, weight_gram, price_per_gram, bead_diameter, 
+            #               unit_price, cost_price, sell_price, size, color, material, element, 
+            #               remark, create_time, update_time
+            # 显示顺序：stock_code, stock_status, product_code, product_type, stock_qty, 
+            #         weight_gram, cost_price, price_per_gram, sell_price, size, color, 
+            #         material, element, remark, create_time, update_time
+            
+            # 重新排列字段顺序并处理 None 值
+            display_row = (
+                "" if r[1] is None else str(r[1]),   # stock_code
+                "" if r[3] is None else str(r[3]),   # stock_status
+                "" if r[4] is None else str(r[4]),   # product_code
+                "" if r[5] is None else str(r[5]),   # product_type
+                "" if r[2] is None else str(r[2]),   # stock_qty
+                "" if r[7] is None else str(r[7]),   # weight_gram
+                "" if r[11] is None else str(r[11]), # cost_price
+                "" if r[8] is None else str(r[8]),   # price_per_gram
+                "" if r[12] is None else str(r[12]), # sell_price
+                "" if r[13] is None else str(r[13]), # size
+                "" if r[14] is None else str(r[14]), # color
+                "" if r[15] is None else str(r[15]), # material
+                "" if r[16] is None else str(r[16]), # element
+                "" if r[17] is None else str(r[17]), # remark
+                "" if r[18] is None else str(r[18]), # create_time
+                "" if r[19] is None else str(r[19])  # update_time
+            )
+            
+            # 使用tags保存ID用于操作
+            self.tree.insert("", "end", values=("☐",) + display_row, tags=(r[0],))
 
         self.page_label.configure(text=f"第 {self.current_page} / {self.total_pages} 页")
         self.total_label.configure(text=f"共 {total} 条记录")
@@ -185,13 +228,15 @@ class InventoryPage(ctk.CTkFrame):
             ctk.CTkLabel(scroll, text=label, font=("微软雅黑", 16)).grid(row=i, column=0, padx=8, pady=6, sticky="e")
             if ftype in ["text", "exact"]:
                 e = ctk.CTkEntry(scroll, width=240)
-                e.grid(row=i, column=1, padx=8, pady=6, sticky="w")
+                e.grid(row=i, column=1, padx=8, pady=6, sticky="w", columnspan=3)
                 inputs[key] = {"type": ftype, "widget": e}
             else:
-                f1 = ctk.CTkEntry(scroll, width=110, placeholder_text="从")
-                f2 = ctk.CTkEntry(scroll, width=110, placeholder_text="到")
-                f1.grid(row=i, column=1, padx=(0, 5), pady=6, sticky="w")
-                f2.grid(row=i, column=2, padx=(0, 5), pady=6, sticky="w")
+                # 范围查询：从 - 到
+                f1 = ctk.CTkEntry(scroll, width=100, placeholder_text="从")
+                f1.grid(row=i, column=1, padx=(8, 2), pady=6, sticky="w")
+                ctk.CTkLabel(scroll, text="-", font=("微软雅黑", 16)).grid(row=i, column=2, padx=2, pady=6)
+                f2 = ctk.CTkEntry(scroll, width=100, placeholder_text="到")
+                f2.grid(row=i, column=3, padx=(2, 8), pady=6, sticky="w")
                 inputs[key] = {"type": "range", "widget": (f1, f2)}
 
         def confirm():
@@ -213,26 +258,128 @@ class InventoryPage(ctk.CTkFrame):
 
         ctk.CTkButton(win, text="确定", width=120, fg_color="#2B6CB0", command=confirm).pack(pady=10)
 
-    # ========== 勾选 / 复制 ==========
+    # ========== 全选/取消全选 ==========
+    def toggle_select_all(self):
+        """全选或取消全选当前页所有数据"""
+        all_items = self.tree.get_children()
+        if not all_items:
+            return
+        
+        # 检查是否所有项都已选中
+        all_selected = all(self.tree.item(item, "values")[0] == "☑" for item in all_items)
+        
+        if all_selected:
+            # 取消全选
+            for item in all_items:
+                vals = list(self.tree.item(item, "values"))
+                tags = self.tree.item(item, "tags")
+                sid = tags[0] if tags else None
+                if sid:
+                    vals[0] = "☐"
+                    self.tree.item(item, values=vals)
+                    self.selected_items.discard(sid)
+        else:
+            # 全选
+            for item in all_items:
+                vals = list(self.tree.item(item, "values"))
+                tags = self.tree.item(item, "tags")
+                sid = tags[0] if tags else None
+                if sid:
+                    vals[0] = "☑"
+                    self.tree.item(item, values=vals)
+                    self.selected_items.add(sid)
+    
+    # ========== 右键菜单 ==========
+    def show_context_menu(self, event):
+        """显示右键菜单"""
+        # 识别点击的行和列
+        item_id = self.tree.identify_row(event.y)
+        col_id = self.tree.identify_column(event.x)
+        
+        if not item_id or not col_id:
+            return
+        
+        # 选中该行
+        self.tree.selection_set(item_id)
+        
+        # 获取单元格内容
+        col_index = int(col_id.replace("#", "")) - 1
+        values = self.tree.item(item_id, "values")
+        
+        if col_index < len(values):
+            cell_value = values[col_index]
+            
+            # 创建右键菜单
+            context_menu = Menu(self.tree, tearoff=0)
+            context_menu.add_command(
+                label=f"📋 复制单元格内容",
+                command=lambda: self.copy_cell(cell_value)
+            )
+            context_menu.add_command(
+                label="📄 复制整行数据",
+                command=lambda: self.copy_row(values)
+            )
+            context_menu.add_separator()
+            context_menu.add_command(
+                label="❌ 取消",
+                command=lambda: context_menu.unpost()
+            )
+            
+            # 显示菜单
+            try:
+                context_menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                context_menu.grab_release()
+    
+    def copy_cell(self, cell_value):
+        """复制单元格内容"""
+        pyperclip.copy(str(cell_value))
+        messagebox.showinfo("复制成功", f"已复制: {cell_value}")
+    
+    def copy_row(self, values):
+        """复制整行数据"""
+        # 获取表头的中文名称
+        headers = [
+            "✔", "库存编号", "状态", "产品编号", "类型", "数量", "克重",
+            "成本价", "克价", "销售价", "尺寸", "颜色", "材质", "元素", "备注", "创建日期", "更新日期"
+        ]
+        
+        # 跳过勾选列，从第二列开始复制
+        lines = []
+        for h, v in zip(headers[1:], values[1:]):  # 跳过 "✔" 列
+            if v:  # 只复制有值的字段
+                lines.append(f"{h}: {v}")
+        
+        copied = "\n".join(lines)
+        pyperclip.copy(copied)
+        messagebox.showinfo("复制成功", "整行数据已复制到剪贴板")
+    
+    # ========== 勾选 ==========
     def toggle_select(self, event):
         item_id = self.tree.identify_row(event.y)
         col = self.tree.identify_column(event.x)
         if not item_id:
             return
+        
+        # 只处理勾选列（第一列）
+        if col != "#1":
+            return
+        
         vals = list(self.tree.item(item_id, "values"))
-
-        if col == "#2":
-            copied = "\n".join(f"{h}: {v}" for h, v in zip(self.tree["columns"][2:], vals[2:]))
-            pyperclip.copy(copied)
-            messagebox.showinfo("复制成功", "该行数据已复制到剪贴板。")
+        
+        # 从 tags 中获取 ID
+        tags = self.tree.item(item_id, "tags")
+        sid = tags[0] if tags else None
+        
+        if not sid:
             return
 
         if vals[0] == "☐":
             vals[0] = "☑"
-            self.selected_items.add(vals[2])
+            self.selected_items.add(sid)
         else:
             vals[0] = "☐"
-            self.selected_items.discard(vals[2])
+            self.selected_items.discard(sid)
         self.tree.item(item_id, values=vals)
 
     # ========== 分页 ==========
@@ -343,7 +490,7 @@ class InventoryPage(ctk.CTkFrame):
             if not vals["product_code"] or not vals["stock_qty"]:
                 messagebox.showwarning("提示", "请填写必填项。")
                 return
-            now = datetime.datetime.now().strftime("%Y-%m-%d")  # ✅ 年月日
+            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # ✅ 年月日
 
             if mode == "add":
                 self.cursor.execute("""
