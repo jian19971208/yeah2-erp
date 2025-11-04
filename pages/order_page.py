@@ -43,10 +43,8 @@ class OrderPage(ctk.CTkFrame):
                       command=self.edit_order).pack(side="left", padx=3)
         ctk.CTkButton(toolbar, text="🗑 删除", width=100, fg_color="#E53E3E",
                       command=self.delete_order).pack(side="left", padx=3)
-        ctk.CTkButton(toolbar, text="✅ 完成", width=100, fg_color="#38A169",
-                      command=self.complete_order).pack(side="left", padx=3)
-        ctk.CTkButton(toolbar, text="📦 送达", width=100, fg_color="#805AD5",
-                      command=self.deliver_order).pack(side="left", padx=3)
+        ctk.CTkButton(toolbar, text="🔄 订单操作", width=120, fg_color="#38A169",
+                      command=self.open_order_operations).pack(side="left", padx=3)
         ctk.CTkButton(toolbar, text="🔄 刷新", width=100, fg_color="#A0AEC0",
                       command=self.reset_filters).pack(side="right", padx=3)
         ctk.CTkButton(toolbar, text="🔍 搜索", width=100, fg_color="#4A5568",
@@ -211,7 +209,7 @@ class OrderPage(ctk.CTkFrame):
                 e = ctk.CTkEntry(scroll, width=240)
                 e.grid(row=i, column=1, padx=8, pady=6, sticky="w", columnspan=3)
                 inputs[key] = {"type": "text", "widget": e}
-        else:
+            else:
                 # 范围查询：从 - 到
                 f1 = ctk.CTkEntry(scroll, width=100, placeholder_text="从")
                 f1.grid(row=i, column=1, padx=(8, 2), pady=6, sticky="w")
@@ -406,36 +404,101 @@ class OrderPage(ctk.CTkFrame):
             self.refresh_table()
             messagebox.showinfo("成功", "已删除选中的订单！")
 
-    # ========== 完成订单 ==========
-    def complete_order(self):
+    # ========== 订单操作窗口 ==========
+    def open_order_operations(self):
+        """打开订单操作窗口，根据当前状态显示可用操作"""
         if len(self.selected_items) != 1:
-            messagebox.showwarning("提示", "请勾选一条订单进行完成操作。")
+            messagebox.showwarning("提示", "请勾选一条订单进行操作。")
             return
         
         oid = list(self.selected_items)[0]
         
+        # 查询订单信息
+        self.cursor.execute('SELECT order_status, order_no FROM "order" WHERE id=?', (oid,))
+        order_info = self.cursor.fetchone()
+        
+        if not order_info:
+            messagebox.showerror("错误", "订单不存在！")
+            return
+        
+        current_status, order_no = order_info
+        
+        # 创建操作窗口
+        win = ctk.CTkToplevel(self)
+        win.title(f"订单操作 - {order_no}")
+        win.geometry("500x400")
+        win.grab_set()
+        
+        # 显示当前状态
+        status_frame = ctk.CTkFrame(win, fg_color="#E8F4F8")
+        status_frame.pack(fill="x", padx=20, pady=20)
+        ctk.CTkLabel(status_frame, text=f"当前状态：{current_status}", 
+                     font=("微软雅黑", 18, "bold"), text_color="#2C5282").pack(pady=15)
+        
+        # 操作按钮区域
+        operations_frame = ctk.CTkFrame(win, fg_color="#FFFFFF")
+        operations_frame.pack(fill="both", expand=True, padx=20, pady=(0, 20))
+        
+        # 定义状态转换规则
+        status_transitions = {
+            "草稿": [
+                ("✅ 完成订单", "已完成", "#38A169", self._transition_to_completed)
+            ],
+            "已完成": [
+                ("📦 送达订单", "已送达", "#805AD5", self._transition_to_delivered),
+                ("↩️ 转为草稿", "草稿", "#E53E3E", self._transition_to_draft)
+            ],
+            "已送达": [
+                ("🔙 已退货", "已退货", "#DD6B20", self._transition_to_returned)
+            ],
+            "已退货": []
+        }
+        
+        available_operations = status_transitions.get(current_status, [])
+        
+        if not available_operations:
+            ctk.CTkLabel(operations_frame, text="当前状态无可用操作", 
+                        font=("微软雅黑", 16), text_color="#718096").pack(pady=50)
+        else:
+            ctk.CTkLabel(operations_frame, text="请选择操作：", 
+                        font=("微软雅黑", 16, "bold")).pack(pady=(20, 10))
+            
+            for btn_text, target_status, color, handler in available_operations:
+                btn = ctk.CTkButton(
+                    operations_frame,
+                    text=btn_text,
+                    width=300,
+                    height=50,
+                    font=("微软雅黑", 16),
+                    fg_color=color,
+                    command=lambda h=handler, ts=target_status, w=win: h(oid, current_status, ts, w)
+                )
+                btn.pack(pady=10)
+        
+        # 关闭按钮
+        ctk.CTkButton(win, text="关闭", width=120, fg_color="#A0AEC0",
+                     command=win.destroy).pack(pady=10)
+    
+    # ========== 状态转换：草稿 -> 已完成 ==========
+    def _transition_to_completed(self, oid, current_status, target_status, parent_window):
+        """完成订单：扣减库存"""
         try:
             self.cursor.execute('BEGIN')
             
             # 查询订单信息
-            self.cursor.execute('SELECT order_status, detail FROM "order" WHERE id=?', (oid,))
+            self.cursor.execute('SELECT detail FROM "order" WHERE id=?', (oid,))
             order_info = self.cursor.fetchone()
             
             if not order_info:
                 raise Exception("订单不存在！")
             
-            status, detail_json = order_info
-            
-            if status != "草稿":
-                raise Exception(f"只能完成草稿状态的订单，当前状态为：{status}")
-            
-            # 解析明细
+            detail_json = order_info[0]
             details = json.loads(detail_json) if detail_json else []
             
             if not details:
                 raise Exception("订单明细为空，无法完成！")
             
-            # 检查库存并扣减
+            # 检查库存
             for item in details:
                 product_code = item.get('product_code', '')
                 qty = float(item.get('qty', 0))
@@ -443,7 +506,6 @@ class OrderPage(ctk.CTkFrame):
                 if not product_code or qty <= 0:
                     continue
                 
-                # 查询当前库存
                 self.cursor.execute(
                     "SELECT stock_qty FROM inventory WHERE product_code=?",
                     (product_code,)
@@ -462,8 +524,15 @@ class OrderPage(ctk.CTkFrame):
                         f"需要数量：{qty}\n"
                         f"缺少：{qty - current_stock}"
                     )
-
+            
             # 扣减库存
+            for item in details:
+                product_code = item.get('product_code', '')
+                qty = float(item.get('qty', 0))
+                
+                if not product_code or qty <= 0:
+                    continue
+                
                 self.cursor.execute(
                     "UPDATE inventory SET stock_qty = stock_qty - ? WHERE product_code=?",
                     (qty, product_code)
@@ -477,44 +546,247 @@ class OrderPage(ctk.CTkFrame):
             )
             
             self.conn.commit()
+            parent_window.destroy()
             messagebox.showinfo("成功", "订单已完成，库存已扣减！")
             self.refresh_table()
 
         except Exception as e:
             self.conn.rollback()
             messagebox.showerror("错误", str(e))
+    
+    # ========== 状态转换：已完成 -> 已送达 ==========
+    def _transition_to_delivered(self, oid, current_status, target_status, parent_window):
+        """送达订单：更新客户购买记录"""
+        try:
+            self.cursor.execute('BEGIN')
+            
+            # 查询订单信息
+            self.cursor.execute('SELECT customer_id, sell_price FROM "order" WHERE id=?', (oid,))
+            order_info = self.cursor.fetchone()
+            
+            if not order_info:
+                raise Exception("订单不存在！")
+            
+            customer_id, sell_price = order_info
+            sell_price = float(sell_price or 0)
+            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            # 更新客户购买记录
+            self.cursor.execute('''
+                UPDATE customer SET
+                    last_purchase_date = ?,
+                    total_purchase_amount = COALESCE(total_purchase_amount, 0) + ?,
+                    purchase_times = COALESCE(purchase_times, 0) + 1,
+                    update_time = ?
+                WHERE id = ?
+            ''', (now, sell_price, now, customer_id))
+            
+            # 更新订单状态
+            self.cursor.execute(
+                'UPDATE "order" SET order_status=?, update_time=? WHERE id=?',
+                ("已送达", now, oid)
+            )
+            
+            self.conn.commit()
+            parent_window.destroy()
+            messagebox.showinfo("成功", f"订单已送达！\n客户购买记录已更新：\n- 购买次数 +1\n- 累计金额 +{sell_price}")
+            self.refresh_table()
 
-    # ========== 送达订单 ==========
-    def deliver_order(self):
-        if len(self.selected_items) != 1:
-            messagebox.showwarning("提示", "请勾选一条订单进行送达操作。")
-            return
+        except Exception as e:
+            self.conn.rollback()
+            messagebox.showerror("错误", str(e))
+    
+    # ========== 状态转换：已完成 -> 草稿 ==========
+    def _transition_to_draft(self, oid, current_status, target_status, parent_window):
+        """回退到草稿：可选回滚库存"""
+        # 先关闭父窗口
+        parent_window.destroy()
         
-        oid = list(self.selected_items)[0]
+        # 创建确认窗口
+        confirm_win = ctk.CTkToplevel(self)
+        confirm_win.title("转为草稿")
+        confirm_win.geometry("400x250")
+        confirm_win.grab_set()
         
-        # 查询订单状态
-        self.cursor.execute('SELECT order_status FROM "order" WHERE id=?', (oid,))
-        status_info = self.cursor.fetchone()
+        ctk.CTkLabel(confirm_win, text="将订单转为草稿状态", 
+                     font=("微软雅黑", 18, "bold")).pack(pady=20)
         
-        if not status_info:
-            messagebox.showerror("错误", "订单不存在！")
-            return
+        # 回滚库存选项
+        rollback_stock_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(confirm_win, text="回滚库存（恢复已扣减的库存数量）",
+                       variable=rollback_stock_var, font=("微软雅黑", 14)).pack(pady=10)
         
-        status = status_info[0]
+        ctk.CTkLabel(confirm_win, text="⚠️ 此操作会将订单状态改为草稿", 
+                     font=("微软雅黑", 12), text_color="#E53E3E").pack(pady=10)
         
-        if status != "已完成":
-            messagebox.showerror("错误", f"只能送达已完成的订单，当前状态为：{status}")
-            return
+        def confirm():
+            try:
+                self.cursor.execute('BEGIN')
+                
+                rollback_stock = rollback_stock_var.get()
+                
+                # 回滚库存
+                if rollback_stock:
+                    self.cursor.execute('SELECT detail FROM "order" WHERE id=?', (oid,))
+                    detail_json = self.cursor.fetchone()[0]
+                    details = json.loads(detail_json) if detail_json else []
+                    
+                    for item in details:
+                        product_code = item.get('product_code', '')
+                        qty = float(item.get('qty', 0))
+                        
+                        if not product_code or qty <= 0:
+                            continue
+                        
+                        self.cursor.execute(
+                            "UPDATE inventory SET stock_qty = stock_qty + ? WHERE product_code=?",
+                            (qty, product_code)
+                        )
+                
+                # 更新订单状态
+                now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                self.cursor.execute(
+                    'UPDATE "order" SET order_status=?, update_time=? WHERE id=?',
+                    ("草稿", now, oid)
+                )
+                
+                self.conn.commit()
+                confirm_win.destroy()
+                
+                msg = "订单已转为草稿！"
+                if rollback_stock:
+                    msg += "\n库存已回滚。"
+                messagebox.showinfo("成功", msg)
+                self.refresh_table()
+
+            except Exception as e:
+                self.conn.rollback()
+                messagebox.showerror("错误", str(e))
         
-        # 更新状态为已送达
-        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.cursor.execute(
-            'UPDATE "order" SET order_status=?, update_time=? WHERE id=?',
-            ("已送达", now, oid)
-        )
-        self.conn.commit()
-        messagebox.showinfo("成功", "订单已送达！")
-        self.refresh_table()
+        btn_frame = ctk.CTkFrame(confirm_win, fg_color="transparent")
+        btn_frame.pack(pady=20)
+        ctk.CTkButton(btn_frame, text="确认", width=120, fg_color="#2B6CB0",
+                     command=confirm).pack(side="left", padx=10)
+        ctk.CTkButton(btn_frame, text="取消", width=120, fg_color="#A0AEC0",
+                     command=confirm_win.destroy).pack(side="left", padx=10)
+    
+    # ========== 状态转换：已送达 -> 已退货 ==========
+    def _transition_to_returned(self, oid, current_status, target_status, parent_window):
+        """退货：可选回滚购买记录、新增退货记录"""
+        # 先关闭父窗口
+        parent_window.destroy()
+        
+        # 创建确认窗口
+        confirm_win = ctk.CTkToplevel(self)
+        confirm_win.title("订单退货")
+        confirm_win.geometry("450x350")
+        confirm_win.grab_set()
+        
+        ctk.CTkLabel(confirm_win, text="订单退货操作", 
+                     font=("微软雅黑", 18, "bold")).pack(pady=20)
+        
+        # 回滚购买记录选项
+        rollback_purchase_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(confirm_win, text="回滚客户购买记录（购买次数-1，累计金额减少）",
+                       variable=rollback_purchase_var, font=("微软雅黑", 13)).pack(pady=8, padx=20)
+        
+        # 新增退货记录选项
+        add_return_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(confirm_win, text="新增客户退货记录（退货次数+1，退货总额增加）",
+                       variable=add_return_var, font=("微软雅黑", 13)).pack(pady=8, padx=20)
+        
+        # 回滚库存选项
+        rollback_stock_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(confirm_win, text="回滚库存（恢复已扣减的库存数量）",
+                       variable=rollback_stock_var, font=("微软雅黑", 13)).pack(pady=8, padx=20)
+        
+        ctk.CTkLabel(confirm_win, text="⚠️ 请根据实际情况选择相应操作", 
+                     font=("微软雅黑", 12), text_color="#DD6B20").pack(pady=10)
+        
+        def confirm():
+            try:
+                self.cursor.execute('BEGIN')
+                
+                # 查询订单信息
+                self.cursor.execute('SELECT customer_id, sell_price, detail FROM "order" WHERE id=?', (oid,))
+                order_info = self.cursor.fetchone()
+                
+                if not order_info:
+                    raise Exception("订单不存在！")
+                
+                customer_id, sell_price, detail_json = order_info
+                sell_price = float(sell_price or 0)
+                now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+                rollback_purchase = rollback_purchase_var.get()
+                add_return = add_return_var.get()
+                rollback_stock = rollback_stock_var.get()
+                
+                # 回滚购买记录
+                if rollback_purchase:
+                    self.cursor.execute('''
+                        UPDATE customer SET
+                            total_purchase_amount = COALESCE(total_purchase_amount, 0) - ?,
+                            purchase_times = COALESCE(purchase_times, 0) - 1,
+                            update_time = ?
+                        WHERE id = ?
+                    ''', (sell_price, now, customer_id))
+                
+                # 新增退货记录
+                if add_return:
+                    self.cursor.execute('''
+                        UPDATE customer SET
+                            last_return_date = ?,
+                            total_return_amount = COALESCE(total_return_amount, 0) + ?,
+                            return_times = COALESCE(return_times, 0) + 1,
+                            update_time = ?
+                        WHERE id = ?
+                    ''', (now, sell_price, now, customer_id))
+                
+                # 回滚库存
+                if rollback_stock:
+                    details = json.loads(detail_json) if detail_json else []
+                    for item in details:
+                        product_code = item.get('product_code', '')
+                        qty = float(item.get('qty', 0))
+                        
+                        if not product_code or qty <= 0:
+                            continue
+                        
+                        self.cursor.execute(
+                            "UPDATE inventory SET stock_qty = stock_qty + ? WHERE product_code=?",
+                            (qty, product_code)
+                        )
+                
+                # 更新订单状态
+                self.cursor.execute(
+                    'UPDATE "order" SET order_status=?, update_time=? WHERE id=?',
+                    ("已退货", now, oid)
+                )
+                
+                self.conn.commit()
+                confirm_win.destroy()
+                
+                msg = "订单已标记为退货！\n"
+                if rollback_purchase:
+                    msg += "✓ 已回滚购买记录\n"
+                if add_return:
+                    msg += "✓ 已新增退货记录\n"
+                if rollback_stock:
+                    msg += "✓ 已回滚库存\n"
+                messagebox.showinfo("成功", msg)
+                self.refresh_table()
+
+            except Exception as e:
+                self.conn.rollback()
+                messagebox.showerror("错误", str(e))
+        
+        btn_frame = ctk.CTkFrame(confirm_win, fg_color="transparent")
+        btn_frame.pack(pady=20)
+        ctk.CTkButton(btn_frame, text="确认退货", width=120, fg_color="#DD6B20",
+                     command=confirm).pack(side="left", padx=10)
+        ctk.CTkButton(btn_frame, text="取消", width=120, fg_color="#A0AEC0",
+                     command=confirm_win.destroy).pack(side="left", padx=10)
 
     # ========== 新增/编辑 ==========
     def _open_edit_window(self, mode, oid=None):

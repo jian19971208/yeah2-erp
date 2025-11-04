@@ -158,10 +158,10 @@ class CustomerPage(ctk.CTkFrame):
     def open_search_window(self):
         win = ctk.CTkToplevel(self)
         win.title("搜索客户")
-        win.geometry("520x520")
+        win.geometry("520x600")
         win.grab_set()
 
-        scroll = ctk.CTkScrollableFrame(win, width=500, height=460, fg_color="#FFFFFF")
+        scroll = ctk.CTkScrollableFrame(win, width=500, height=540, fg_color="#FFFFFF")
         scroll.pack(fill="both", expand=True, padx=10, pady=10)
 
         search_fields = [
@@ -176,7 +176,9 @@ class CustomerPage(ctk.CTkFrame):
             ("最近退货日期", "last_return_date", "range"),
             ("总退货额", "total_return_amount", "range"),
             ("购买次数", "purchase_times", "range"),
-            ("退货次数", "return_times", "range")
+            ("退货次数", "return_times", "range"),
+            ("创建日期", "create_time", "range"),
+            ("更新日期", "update_time", "range")
         ]
 
         inputs = {}
