@@ -7,7 +7,7 @@ class HomePage(ctk.CTkFrame):
 
         title = ctk.CTkLabel(
             self,
-            text="欢迎使用 Yeah 商务管理系统",
+            text="欢迎使用 Yeah2商务管理系统",
             font=("微软雅黑", 22, "bold"),
             text_color="#2B6CB0"
         )

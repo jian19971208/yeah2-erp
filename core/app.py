@@ -16,7 +16,7 @@ class YeahBusinessApp(ctk.CTk):
         super().__init__()
 
         # ======= 全局窗口设置 =======
-        self.title("Yeah 商务管理系统")
+        self.title("Yeah2商务管理系统")
         self.geometry("1000x640")
         self.minsize(900, 600)
         self.resizable(True, True)
@@ -28,7 +28,7 @@ class YeahBusinessApp(ctk.CTk):
         # 系统标题
         self.logo_label = ctk.CTkLabel(
             self.sidebar_frame,
-            text="Yeah 商务管理系统",
+            text="Yeah2商务管理系统",
             font=("微软雅黑", 18, "bold")
         )
         self.logo_label.pack(pady=(30, 20))
