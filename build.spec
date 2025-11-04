@@ -35,7 +35,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='Yeah商务管理系统',
+    name='Yeah2商务管理系统',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

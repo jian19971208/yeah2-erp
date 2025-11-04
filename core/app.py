@@ -26,7 +26,7 @@ class YeahBusinessApp(ctk.CTk):
         self.resizable(True, True)
         
         # ======= 设置窗口图标 =======
-        # 获取 logo 图片路径（支持开发环境和打包后的环境）
+        # 获取资源路径（支持开发环境和打包后的环境）
         if getattr(sys, 'frozen', False):
             # 打包后的环境
             application_path = Path(sys._MEIPASS)
@@ -34,19 +34,42 @@ class YeahBusinessApp(ctk.CTk):
             # 开发环境
             application_path = Path(__file__).parent.parent
         
-        logo_path = application_path / "assets" / "logo.png"
-        if logo_path.exists():
+        logo_ico_path = application_path / "assets" / "logo.ico"
+        logo_png_path = application_path / "assets" / "logo.png"
+        
+        # 方法1：优先使用 ICO 格式（Windows 标准，支持任务栏图标）
+        if logo_ico_path.exists():
             try:
-                self.iconbitmap(str(logo_path))
-            except:
-                # PNG 格式不支持 iconbitmap，使用 iconphoto
-                try:
-                    from PIL import Image, ImageTk
-                    logo_image = Image.open(str(logo_path))
-                    logo_photo = ImageTk.PhotoImage(logo_image)
-                    self.iconphoto(True, logo_photo)
-                except:
-                    pass  # 如果失败则使用默认图标
+                self.iconbitmap(str(logo_ico_path))
+            except Exception as e:
+                print(f"⚠️  ICO 图标加载失败: {e}")
+                # ICO 加载失败，尝试 PNG 备用方案
+                if logo_png_path.exists():
+                    self._load_png_icon(logo_png_path)
+        # 方法2：如果 ICO 不存在，使用 PNG（需要 PIL）
+        elif logo_png_path.exists():
+            self._load_png_icon(logo_png_path)
+        else:
+            print("⚠️  未找到图标文件（logo.ico 或 logo.png）")
+    
+    def _load_png_icon(self, png_path):
+        """从 PNG 文件加载图标（备用方案）"""
+        try:
+            from PIL import Image, ImageTk
+            
+            # 加载 PNG 图片
+            logo_image = Image.open(str(png_path))
+            
+            # 转换为 PhotoImage
+            logo_photo = ImageTk.PhotoImage(logo_image)
+            
+            # 保存引用防止被垃圾回收（重要！）
+            self._logo_photo = logo_photo
+            
+            # 设置窗口图标
+            self.iconphoto(True, logo_photo)
+        except Exception as e:
+            print(f"⚠️  PNG 图标加载失败: {e}")
 
         # ======= 左侧菜单栏 =======
         self.sidebar_frame = ctk.CTkFrame(self, width=200, corner_radius=0)
