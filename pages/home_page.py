@@ -1,6 +1,7 @@
 import sqlite3
+
 import customtkinter as ctk
-from tkinter import ttk
+
 from data.db_init import get_user_db_path
 
 DB_PATH = get_user_db_path()

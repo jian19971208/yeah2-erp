@@ -1,9 +1,10 @@
-import customtkinter as ctk
-import os
 import sys
 from pathlib import Path
-from pages.home_page import HomePage
+
+import customtkinter as ctk
+
 from pages.customer_page import CustomerPage
+from pages.home_page import HomePage
 from pages.inventory_page import InventoryPage
 from pages.order_page import OrderPage
 from pages.setting_page import SettingPage

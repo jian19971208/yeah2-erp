@@ -1,10 +1,12 @@
-import sqlite3
+import datetime
 import json
 import math
-import datetime
-import customtkinter as ctk
+import sqlite3
 from tkinter import ttk, messagebox, Menu
+
+import customtkinter as ctk
 import pyperclip
+
 from data.db_init import get_user_db_path
 from pages.setting_page import get_table_settings
 

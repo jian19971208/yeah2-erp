@@ -1,9 +1,10 @@
-import sqlite3
 import json
-import customtkinter as ctk
-from tkinter import ttk, messagebox
-from pathlib import Path
+import json
 import os
+from pathlib import Path
+from tkinter import messagebox
+
+import customtkinter as ctk
 
 # 配置文件路径
 CONFIG_DIR = Path(os.path.expanduser("~")) / "Yeah2Data"
