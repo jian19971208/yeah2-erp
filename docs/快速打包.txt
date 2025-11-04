@@ -1,0 +1,29 @@
+=============================================
+  Yeah 商务管理系统 - 快速打包指南
+=============================================
+
+【最简单的方法】
+1. 双击运行 build_exe.bat
+2. 等待打包完成（约 5-10 分钟）
+3. 在 dist 文件夹找到 Yeah商务管理系统.exe
+
+【如果遇到问题】
+1. 先运行：.venv\Scripts\activate
+2. 安装工具：pip install pyinstaller pillow
+3. 转换图标：python convert_icon.py
+4. 开始打包：pyinstaller yeah_erp.spec --clean
+
+【打包完成后】
+✅ 可执行文件：dist\Yeah商务管理系统.exe
+✅ 窗口图标：已设置为 logo
+✅ 任务栏图标：已设置为 logo
+✅ 无需安装 Python 即可运行
+
+【注意事项】
+- 打包后的 EXE 文件约 50-80MB
+- 首次打包时间较长，请耐心等待
+- 打包完成后可以删除 build 文件夹（节省空间）
+- convert_icon.py 在打包后也可以删除
+
+详细说明请查看：打包说明.md
+

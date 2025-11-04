@@ -1,4 +1,7 @@
 import customtkinter as ctk
+import os
+import sys
+from pathlib import Path
 from pages.home_page import HomePage
 from pages.customer_page import CustomerPage
 from pages.inventory_page import InventoryPage
@@ -21,6 +24,29 @@ class YeahBusinessApp(ctk.CTk):
         self.geometry("1000x640")
         self.minsize(900, 600)
         self.resizable(True, True)
+        
+        # ======= 设置窗口图标 =======
+        # 获取 logo 图片路径（支持开发环境和打包后的环境）
+        if getattr(sys, 'frozen', False):
+            # 打包后的环境
+            application_path = Path(sys._MEIPASS)
+        else:
+            # 开发环境
+            application_path = Path(__file__).parent.parent
+        
+        logo_path = application_path / "assets" / "logo.png"
+        if logo_path.exists():
+            try:
+                self.iconbitmap(str(logo_path))
+            except:
+                # PNG 格式不支持 iconbitmap，使用 iconphoto
+                try:
+                    from PIL import Image, ImageTk
+                    logo_image = Image.open(str(logo_path))
+                    logo_photo = ImageTk.PhotoImage(logo_image)
+                    self.iconphoto(True, logo_photo)
+                except:
+                    pass  # 如果失败则使用默认图标
 
         # ======= 左侧菜单栏 =======
         self.sidebar_frame = ctk.CTkFrame(self, width=200, corner_radius=0)
