@@ -1,4 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
+import customtkinter
 
 block_cipher = None
 
@@ -8,6 +10,8 @@ a = Analysis(
     binaries=[],
     datas=[
         ('assets', 'assets'),  # 包含 assets 文件夹
+        # 添加 CustomTkinter 资源文件
+        (os.path.join(os.path.dirname(customtkinter.__file__), 'assets'), 'customtkinter/assets'),
     ],
     hiddenimports=[
         'PIL._tkinter_finder',
@@ -42,7 +46,7 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,  # 不显示控制台窗口
+    console=True,  # 显示控制台窗口（调试用）
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
