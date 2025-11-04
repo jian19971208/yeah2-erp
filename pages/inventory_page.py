@@ -2,7 +2,7 @@ import sqlite3
 import math
 import datetime
 import customtkinter as ctk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, Menu
 import pyperclip
 from data.db_init import get_user_db_path
 from pages.setting_page import get_table_settings
@@ -59,21 +59,25 @@ class InventoryPage(ctk.CTkFrame):
         table_frame.pack(fill="both", expand=True, padx=10, pady=(5, 10))
 
         self.columns = [
-            "select", "copy", "id", "stock_code", "stock_status", "product_code",
+            "select", "stock_code", "stock_status", "product_code",
             "product_type", "stock_qty", "weight_gram", "cost_price", "price_per_gram",
             "sell_price", "size", "color", "material", "element", "remark",
             "create_time", "update_time"
         ]
         headers = [
-            "✔", "操作", "ID", "库存编号", "状态", "产品编号", "类型", "数量", "克重",
+            "✔", "库存编号", "状态", "产品编号", "类型", "数量", "克重",
             "成本价", "克价", "销售价", "尺寸", "颜色", "材质", "元素", "备注", "创建日期", "更新日期"
         ]
 
         self.tree = ttk.Treeview(table_frame, columns=self.columns, show="headings", height=10)
         for c, h in zip(self.columns, headers):
-            self.tree.heading(c, text=h)
-            width = 160 if c not in ["select", "copy", "id"] else 80
-            self.tree.column(c, width=width, anchor="center")
+            if c == "select":
+                # 勾选列头绑定全选功能
+                self.tree.heading(c, text=h, command=self.toggle_select_all)
+                self.tree.column(c, width=80, anchor="center")
+            else:
+                self.tree.heading(c, text=h)
+                self.tree.column(c, width=160, anchor="center")
 
         y_scroll = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
         x_scroll = ttk.Scrollbar(table_frame, orient="horizontal", command=self.tree.xview)
@@ -82,6 +86,7 @@ class InventoryPage(ctk.CTkFrame):
         x_scroll.pack(side="bottom", fill="x")
         self.tree.pack(fill="both", expand=True)
         self.tree.bind("<ButtonRelease-1>", self.toggle_select)
+        self.tree.bind("<Button-3>", self.show_context_menu)  # 右键菜单
 
         # ======== 分页 ========
         self.page_frame = ctk.CTkFrame(self, fg_color="#F7F9FC")
@@ -138,7 +143,36 @@ class InventoryPage(ctk.CTkFrame):
         rows = self.cursor.fetchall()
 
         for r in rows:
-            self.tree.insert("", "end", values=("☐", "复制") + r)
+            # 数据库字段顺序：id, stock_code, stock_qty, stock_status, product_code, product_type, 
+            #               wrist_circumference, weight_gram, price_per_gram, bead_diameter, 
+            #               unit_price, cost_price, sell_price, size, color, material, element, 
+            #               remark, create_time, update_time
+            # 显示顺序：stock_code, stock_status, product_code, product_type, stock_qty, 
+            #         weight_gram, cost_price, price_per_gram, sell_price, size, color, 
+            #         material, element, remark, create_time, update_time
+            
+            # 重新排列字段顺序并处理 None 值
+            display_row = (
+                "" if r[1] is None else str(r[1]),   # stock_code
+                "" if r[3] is None else str(r[3]),   # stock_status
+                "" if r[4] is None else str(r[4]),   # product_code
+                "" if r[5] is None else str(r[5]),   # product_type
+                "" if r[2] is None else str(r[2]),   # stock_qty
+                "" if r[7] is None else str(r[7]),   # weight_gram
+                "" if r[11] is None else str(r[11]), # cost_price
+                "" if r[8] is None else str(r[8]),   # price_per_gram
+                "" if r[12] is None else str(r[12]), # sell_price
+                "" if r[13] is None else str(r[13]), # size
+                "" if r[14] is None else str(r[14]), # color
+                "" if r[15] is None else str(r[15]), # material
+                "" if r[16] is None else str(r[16]), # element
+                "" if r[17] is None else str(r[17]), # remark
+                "" if r[18] is None else str(r[18]), # create_time
+                "" if r[19] is None else str(r[19])  # update_time
+            )
+            
+            # 使用tags保存ID用于操作
+            self.tree.insert("", "end", values=("☐",) + display_row, tags=(r[0],))
 
         self.page_label.configure(text=f"第 {self.current_page} / {self.total_pages} 页")
         self.total_label.configure(text=f"共 {total} 条记录")
@@ -222,26 +256,116 @@ class InventoryPage(ctk.CTkFrame):
 
         ctk.CTkButton(win, text="确定", width=120, fg_color="#2B6CB0", command=confirm).pack(pady=10)
 
-    # ========== 勾选 / 复制 ==========
+    # ========== 全选/取消全选 ==========
+    def toggle_select_all(self):
+        """全选或取消全选当前页所有数据"""
+        all_items = self.tree.get_children()
+        if not all_items:
+            return
+        
+        # 检查是否所有项都已选中
+        all_selected = all(self.tree.item(item, "values")[0] == "☑" for item in all_items)
+        
+        if all_selected:
+            # 取消全选
+            for item in all_items:
+                vals = list(self.tree.item(item, "values"))
+                tags = self.tree.item(item, "tags")
+                sid = tags[0] if tags else None
+                if sid:
+                    vals[0] = "☐"
+                    self.tree.item(item, values=vals)
+                    self.selected_items.discard(sid)
+        else:
+            # 全选
+            for item in all_items:
+                vals = list(self.tree.item(item, "values"))
+                tags = self.tree.item(item, "tags")
+                sid = tags[0] if tags else None
+                if sid:
+                    vals[0] = "☑"
+                    self.tree.item(item, values=vals)
+                    self.selected_items.add(sid)
+    
+    # ========== 右键菜单 ==========
+    def show_context_menu(self, event):
+        """显示右键菜单"""
+        # 识别点击的行和列
+        item_id = self.tree.identify_row(event.y)
+        col_id = self.tree.identify_column(event.x)
+        
+        if not item_id or not col_id:
+            return
+        
+        # 选中该行
+        self.tree.selection_set(item_id)
+        
+        # 获取单元格内容
+        col_index = int(col_id.replace("#", "")) - 1
+        values = self.tree.item(item_id, "values")
+        
+        if col_index < len(values):
+            cell_value = values[col_index]
+            
+            # 创建右键菜单
+            context_menu = Menu(self.tree, tearoff=0)
+            context_menu.add_command(
+                label=f"📋 复制单元格内容",
+                command=lambda: self.copy_cell(cell_value)
+            )
+            context_menu.add_command(
+                label="📄 复制整行数据",
+                command=lambda: self.copy_row(values)
+            )
+            context_menu.add_separator()
+            context_menu.add_command(
+                label="❌ 取消",
+                command=lambda: context_menu.unpost()
+            )
+            
+            # 显示菜单
+            try:
+                context_menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                context_menu.grab_release()
+    
+    def copy_cell(self, cell_value):
+        """复制单元格内容"""
+        pyperclip.copy(str(cell_value))
+        messagebox.showinfo("复制成功", f"已复制: {cell_value}")
+    
+    def copy_row(self, values):
+        """复制整行数据"""
+        copied = "\n".join(f"{h}: {v}" for h, v in zip(self.tree["columns"], values))
+        pyperclip.copy(copied)
+        messagebox.showinfo("复制成功", "整行数据已复制到剪贴板")
+    
+    # ========== 勾选 ==========
     def toggle_select(self, event):
         item_id = self.tree.identify_row(event.y)
         col = self.tree.identify_column(event.x)
         if not item_id:
             return
+        
+        # 只处理勾选列（第一列）
+        if col != "#1":
+            return
+        
         vals = list(self.tree.item(item_id, "values"))
-
-        if col == "#2":
-            copied = "\n".join(f"{h}: {v}" for h, v in zip(self.tree["columns"][2:], vals[2:]))
-            pyperclip.copy(copied)
-            messagebox.showinfo("复制成功", "该行数据已复制到剪贴板。")
+        
+        # 从 tags 中获取 ID
+        tags = self.tree.item(item_id, "tags")
+        sid = tags[0] if tags else None
+        
+        if not sid:
             return
 
         if vals[0] == "☐":
             vals[0] = "☑"
-            self.selected_items.add(vals[2])
+            self.selected_items.add(sid)
         else:
             vals[0] = "☐"
-            self.selected_items.discard(vals[2])
+            self.selected_items.discard(sid)
         self.tree.item(item_id, values=vals)
 
     # ========== 分页 ==========

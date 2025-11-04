@@ -3,7 +3,7 @@ import json
 import math
 import datetime
 import customtkinter as ctk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, Menu
 import pyperclip
 from data.db_init import get_user_db_path
 from pages.setting_page import get_table_settings
@@ -57,19 +57,23 @@ class OrderPage(ctk.CTkFrame):
         table_frame.pack(fill="both", expand=True, padx=10, pady=(5, 10))
 
         self.columns = [
-            "select", "copy", "order_no", "order_status", "customer_id", "customer_name",
+            "select", "order_no", "order_status", "customer_id", "customer_name",
             "address", "express_no", "detail", "sell_price", "cost_price",
             "remark", "create_time", "update_time"
         ]
         headers = [
-            "✔", "操作", "订单号", "状态", "客户ID", "客户名称",
+            "✔", "订单号", "状态", "客户ID", "客户名称",
             "地址", "快递单号", "明细", "销售价", "成本价",
             "备注", "创建日期", "更新日期"
         ]
 
         self.tree = ttk.Treeview(table_frame, columns=self.columns, show="headings", height=10)
         for c, h in zip(self.columns, headers):
-            self.tree.heading(c, text=h)
+            if c == "select":
+                # 勾选列头绑定全选功能
+                self.tree.heading(c, text=h, command=self.toggle_select_all)
+            else:
+                self.tree.heading(c, text=h)
             self.tree.column(c, width=160, anchor="center")
 
         y_scroll = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
@@ -79,6 +83,7 @@ class OrderPage(ctk.CTkFrame):
         x_scroll.pack(side="bottom", fill="x")
         self.tree.pack(fill="both", expand=True)
         self.tree.bind("<ButtonRelease-1>", self.toggle_select)
+        self.tree.bind("<Button-3>", self.show_context_menu)  # 右键菜单
 
         # ======== 分页 ========
         self.page_frame = ctk.CTkFrame(self, fg_color="#F7F9FC")
@@ -147,23 +152,23 @@ class OrderPage(ctk.CTkFrame):
                 except:
                     detail_str = str(r[9])
             
-            # 重组数据（不显示ID）：order_no, order_status, customer_id, customer_name, address, express_no, detail, sell_price, cost_price, remark, create_time, update_time
+            # 重组数据（不显示ID），处理 None 值
             display_row = (
-                r[1],  # order_no
-                r[2],  # order_status
-                r[3],  # customer_id
-                r[4],  # customer_name
-                r[5],  # address
-                r[6],  # express_no
-                detail_str,  # detail (格式化后)
-                r[7],  # sell_price
-                r[8],  # cost_price
-                r[10],  # remark
-                r[11],  # create_time
-                r[12]   # update_time
+                "" if r[1] is None else str(r[1]),   # order_no
+                "" if r[2] is None else str(r[2]),   # order_status
+                "" if r[3] is None else str(r[3]),   # customer_id
+                "" if r[4] is None else str(r[4]),   # customer_name
+                "" if r[5] is None else str(r[5]),   # address
+                "" if r[6] is None else str(r[6]),   # express_no
+                detail_str,                           # detail (格式化后)
+                "" if r[7] is None else str(r[7]),   # sell_price
+                "" if r[8] is None else str(r[8]),   # cost_price
+                "" if r[10] is None else str(r[10]), # remark
+                "" if r[11] is None else str(r[11]), # create_time
+                "" if r[12] is None else str(r[12])  # update_time
             )
             # 保存ID用于操作，但不显示
-            self.tree.insert("", "end", values=("☐", "复制") + display_row, tags=(r[0],))
+            self.tree.insert("", "end", values=("☐",) + display_row, tags=(r[0],))
 
         self.page_label.configure(text=f"第 {self.current_page} / {self.total_pages} 页")
         self.total_label.configure(text=f"共 {total} 条记录")
@@ -234,24 +239,107 @@ class OrderPage(ctk.CTkFrame):
 
         ctk.CTkButton(win, text="确定", width=120, fg_color="#2B6CB0", command=confirm).pack(pady=10)
 
-    # ========== 勾选/复制 ==========
+    # ========== 全选/取消全选 ==========
+    def toggle_select_all(self):
+        """全选或取消全选当前页所有数据"""
+        all_items = self.tree.get_children()
+        if not all_items:
+            return
+        
+        # 检查是否所有项都已选中
+        all_selected = all(self.tree.item(item, "values")[0] == "☑" for item in all_items)
+        
+        if all_selected:
+            # 取消全选
+            for item in all_items:
+                vals = list(self.tree.item(item, "values"))
+                tags = self.tree.item(item, "tags")
+                oid = tags[0] if tags else None
+                if oid:
+                    vals[0] = "☐"
+                    self.tree.item(item, values=vals)
+                    self.selected_items.discard(oid)
+        else:
+            # 全选
+            for item in all_items:
+                vals = list(self.tree.item(item, "values"))
+                tags = self.tree.item(item, "tags")
+                oid = tags[0] if tags else None
+                if oid:
+                    vals[0] = "☑"
+                    self.tree.item(item, values=vals)
+                    self.selected_items.add(oid)
+    
+    # ========== 右键菜单 ==========
+    def show_context_menu(self, event):
+        """显示右键菜单"""
+        # 识别点击的行和列
+        item_id = self.tree.identify_row(event.y)
+        col_id = self.tree.identify_column(event.x)
+        
+        if not item_id or not col_id:
+            return
+        
+        # 选中该行
+        self.tree.selection_set(item_id)
+        
+        # 获取单元格内容
+        col_index = int(col_id.replace("#", "")) - 1
+        values = self.tree.item(item_id, "values")
+        
+        if col_index < len(values):
+            cell_value = values[col_index]
+            
+            # 创建右键菜单
+            context_menu = Menu(self.tree, tearoff=0)
+            context_menu.add_command(
+                label=f"📋 复制单元格内容",
+                command=lambda: self.copy_cell(cell_value)
+            )
+            context_menu.add_command(
+                label="📄 复制整行数据",
+                command=lambda: self.copy_row(values)
+            )
+            context_menu.add_separator()
+            context_menu.add_command(
+                label="❌ 取消",
+                command=lambda: context_menu.unpost()
+            )
+            
+            # 显示菜单
+            try:
+                context_menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                context_menu.grab_release()
+    
+    def copy_cell(self, cell_value):
+        """复制单元格内容"""
+        pyperclip.copy(str(cell_value))
+        messagebox.showinfo("复制成功", f"已复制: {cell_value}")
+    
+    def copy_row(self, values):
+        """复制整行数据"""
+        copied = "\n".join(f"{h}: {v}" for h, v in zip(self.tree["columns"], values))
+        pyperclip.copy(copied)
+        messagebox.showinfo("复制成功", "整行数据已复制到剪贴板")
+    
+    # ========== 勾选 ==========
     def toggle_select(self, event):
         item_id = self.tree.identify_row(event.y)
         col = self.tree.identify_column(event.x)
         if not item_id:
             return
+        
+        # 只处理勾选列（第一列）
+        if col != "#1":
+            return
+        
         vals = list(self.tree.item(item_id, "values"))
         # 从 tags 中获取订单ID
         tags = self.tree.item(item_id, "tags")
         oid = tags[0] if tags else None
         
         if not oid:
-            return
-
-        if col == "#2":  # 复制列
-            copied = "\n".join(f"{h}: {v}" for h, v in zip(self.tree["columns"][2:], vals[2:]))
-            pyperclip.copy(copied)
-            messagebox.showinfo("复制成功", "该行数据已复制到剪贴板。")
             return
 
         if vals[0] == "☐":
