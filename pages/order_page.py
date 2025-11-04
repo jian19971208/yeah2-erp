@@ -837,6 +837,21 @@ class OrderPage(ctk.CTkFrame):
                 "remark": r[10] or ""
             }
 
+        # 查询客户列表
+        self.cursor.execute("SELECT id, customer_name, customer_address FROM customer WHERE customer_status='启用'")
+        customers = self.cursor.fetchall()
+        customer_options = [f"{c[0]} - {c[1]}" for c in customers]
+        
+        # 构建客户数据映射
+        customer_data_map = {}
+        for c in customers:
+            display_text = f"{c[0]} - {c[1]}"
+            customer_data_map[display_text] = {
+                "id": c[0],
+                "name": c[1],
+                "address": c[2] or ""
+            }
+
         # 查询库存产品列表
         self.cursor.execute("SELECT product_code, cost_price, sell_price FROM inventory WHERE stock_status='启用'")
         inventory_data = self.cursor.fetchall()
@@ -844,7 +859,7 @@ class OrderPage(ctk.CTkFrame):
         product_codes = list(inventory_map.keys())
 
         # ===== 顶部表单区域 =====
-        form_frame = ctk.CTkScrollableFrame(win, width=860, height=280, fg_color="#FFFFFF")
+        form_frame = ctk.CTkScrollableFrame(win, width=860, height=200, fg_color="#FFFFFF")
         form_frame.pack(fill="x", padx=10, pady=10)
 
         entries = {}
@@ -857,73 +872,26 @@ class OrderPage(ctk.CTkFrame):
         order_no_entry.grid(row=0, column=1, padx=10, pady=6, sticky="w")
         entries["order_no"] = order_no_entry
 
-        # ===== 客户搜索区域 =====
+        # ===== 客户选择区域 =====
         ctk.CTkLabel(form_frame, text="客户*", font=("微软雅黑", 16)).grid(row=1, column=0, padx=10, pady=6, sticky="e")
         
-        # 客户搜索框和按钮的容器
-        customer_search_frame = ctk.CTkFrame(form_frame, fg_color="transparent")
-        customer_search_frame.grid(row=1, column=1, padx=10, pady=6, sticky="w")
+        # 客户选择框和搜索按钮的容器
+        customer_frame = ctk.CTkFrame(form_frame, fg_color="transparent")
+        customer_frame.grid(row=1, column=1, padx=10, pady=6, sticky="w")
         
-        # 搜索输入框
-        customer_search_entry = ctk.CTkEntry(customer_search_frame, width=180, placeholder_text="输入客户名搜索")
-        customer_search_entry.pack(side="left", padx=(0, 5))
+        # 客户下拉框
+        customer_combo = ctk.CTkComboBox(customer_frame, values=customer_options if customer_options else ["无可用客户"], width=280)
+        customer_combo.pack(side="left", padx=(0, 5))
         
-        # 搜索按钮
-        search_btn = ctk.CTkButton(customer_search_frame, text="🔍", width=50, fg_color="#4A5568")
-        search_btn.pack(side="left")
-        
-        # 客户选择下拉框
-        ctk.CTkLabel(form_frame, text="选择客户", font=("微软雅黑", 16)).grid(row=2, column=0, padx=10, pady=6, sticky="e")
-        customer_combo = ctk.CTkComboBox(form_frame, values=["请先搜索客户"], width=240, state="readonly")
-        customer_combo.grid(row=2, column=1, padx=10, pady=6, sticky="w")
-        
-        # 存储客户数据的变量
-        customer_data_map = {}  # {显示文本: (id, name, address)}
-        
-        # 搜索客户函数
-        def search_customers():
-            search_text = customer_search_entry.get().strip()
-            
-            if not search_text:
-                # 如果搜索框为空，显示所有启用的客户（限制前50条）
-                self.cursor.execute(
-                    "SELECT id, customer_name, customer_address FROM customer WHERE customer_status='启用' LIMIT 50"
-                )
+        # 如果是编辑模式，设置当前客户
+        if mode == "edit" and data["customer_id"]:
+            match = [opt for opt in customer_options if opt.startswith(f"{data['customer_id']} -")]
+            if match:
+                customer_combo.set(match[0])
             else:
-                # 模糊搜索客户名
-                self.cursor.execute(
-                    "SELECT id, customer_name, customer_address FROM customer WHERE customer_status='启用' AND customer_name LIKE ? LIMIT 50",
-                    (f"%{search_text}%",)
-                )
-            
-            customers = self.cursor.fetchall()
-            
-            if not customers:
-                customer_combo.configure(values=["未找到匹配的客户"])
-                customer_combo.set("未找到匹配的客户")
-                customer_data_map.clear()
-                messagebox.showinfo("提示", "未找到匹配的客户")
-                return
-            
-            # 构建选项列表和数据映射
-            customer_options = []
-            customer_data_map.clear()
-            
-            for c in customers:
-                customer_id, customer_name, customer_address = c
-                display_text = f"{customer_id} - {customer_name}"
-                customer_options.append(display_text)
-                customer_data_map[display_text] = {
-                    "id": customer_id,
-                    "name": customer_name,
-                    "address": customer_address or ""
-                }
-            
-            customer_combo.configure(values=customer_options, state="readonly")
-            if customer_options:
-                customer_combo.set(customer_options[0])
-                # 自动触发一次客户选择事件
-                on_customer_selected(None)
+                customer_combo.set(f"{data['customer_id']} - {data['customer_name']}")
+        elif customer_options:
+            customer_combo.set(customer_options[0])
         
         # 客户选择事件处理
         def on_customer_selected(event):
@@ -949,53 +917,171 @@ class OrderPage(ctk.CTkFrame):
                     address_entry.delete(0, "end")
                     address_entry.insert(0, customer_address)
         
-        search_btn.configure(command=search_customers)
-        customer_search_entry.bind("<Return>", lambda e: search_customers())  # 支持回车搜索
         customer_combo.bind("<<ComboboxSelected>>", on_customer_selected)
         
-        # 如果是编辑模式，预填充客户信息
-        if mode == "edit" and data["customer_id"]:
-            # 查询该客户信息
-            self.cursor.execute(
-                "SELECT id, customer_name, customer_address FROM customer WHERE id=?",
-                (data["customer_id"],)
-            )
-            customer_info = self.cursor.fetchone()
+        # 搜索客户弹窗函数
+        def open_customer_search():
+            """打开客户搜索弹窗"""
+            search_win = ctk.CTkToplevel(win)
+            search_win.title("搜索客户")
+            search_win.geometry("700x600")
+            search_win.transient(win)  # 设置为win的子窗口
+            search_win.grab_set()  # 模态窗口
             
-            if customer_info:
-                customer_id, customer_name, customer_address = customer_info
+            # 搜索区域
+            search_frame = ctk.CTkFrame(search_win, fg_color="#F7F9FC")
+            search_frame.pack(fill="x", padx=20, pady=20)
+            
+            ctk.CTkLabel(search_frame, text="客户名称:", font=("微软雅黑", 16)).pack(side="left", padx=5)
+            search_entry = ctk.CTkEntry(search_frame, width=300, placeholder_text="输入客户名进行模糊搜索")
+            search_entry.pack(side="left", padx=5)
+            
+            # 结果显示区域
+            result_frame = ctk.CTkFrame(search_win, fg_color="#FFFFFF")
+            result_frame.pack(fill="both", expand=True, padx=20, pady=(0, 20))
+            
+            # 创建表格显示搜索结果
+            columns = ["id", "customer_name", "customer_address", "customer_phone"]
+            headers = ["客户ID", "客户名称", "收件地址", "联系电话"]
+            
+            tree = ttk.Treeview(result_frame, columns=columns, show="headings", height=15)
+            for c, h in zip(columns, headers):
+                tree.heading(c, text=h)
+                tree.column(c, width=150, anchor="center")
+            
+            y_scroll = ttk.Scrollbar(result_frame, orient="vertical", command=tree.yview)
+            tree.configure(yscrollcommand=y_scroll.set)
+            y_scroll.pack(side="right", fill="y")
+            tree.pack(fill="both", expand=True)
+            
+            # 搜索函数
+            def do_search():
+                search_text = search_entry.get().strip()
+                
+                # 清空原有结果
+                for item in tree.get_children():
+                    tree.delete(item)
+                
+                if not search_text:
+                    # 显示所有启用的客户
+                    self.cursor.execute(
+                        "SELECT id, customer_name, customer_address, customer_phone FROM customer WHERE customer_status='启用' ORDER BY id DESC"
+                    )
+                else:
+                    # 模糊搜索
+                    self.cursor.execute(
+                        "SELECT id, customer_name, customer_address, customer_phone FROM customer WHERE customer_status='启用' AND customer_name LIKE ? ORDER BY id DESC",
+                        (f"%{search_text}%",)
+                    )
+                
+                results = self.cursor.fetchall()
+                
+                if not results:
+                    messagebox.showinfo("提示", "未找到匹配的客户")
+                    return
+                
+                for r in results:
+                    tree.insert("", "end", values=(
+                        r[0],
+                        r[1] or "",
+                        r[2] or "",
+                        r[3] or ""
+                    ))
+            
+            # 选择客户函数
+            def select_customer():
+                selected = tree.selection()
+                if not selected:
+                    messagebox.showwarning("提示", "请选择一个客户")
+                    return
+                
+                values = tree.item(selected[0], "values")
+                customer_id = values[0]
+                customer_name = values[1]
+                customer_address = values[2]
+                
+                # 构建显示文本
                 display_text = f"{customer_id} - {customer_name}"
-                customer_data_map[display_text] = {
-                    "id": customer_id,
-                    "name": customer_name,
-                    "address": customer_address or ""
-                }
-                customer_combo.configure(values=[display_text], state="readonly")
+                
+                # 更新主窗口的客户下拉框
+                # 先检查是否已在列表中
+                if display_text not in customer_data_map:
+                    # 添加到数据映射
+                    customer_data_map[display_text] = {
+                        "id": customer_id,
+                        "name": customer_name,
+                        "address": customer_address
+                    }
+                    # 更新下拉框选项
+                    current_values = list(customer_combo.cget("values"))
+                    if "无可用客户" in current_values:
+                        current_values.remove("无可用客户")
+                    if display_text not in current_values:
+                        current_values.insert(0, display_text)
+                    customer_combo.configure(values=current_values)
+                
+                # 设置选中
                 customer_combo.set(display_text)
-                customer_search_entry.insert(0, customer_name)
+                
+                # 触发地址填充
+                if customer_address:
+                    current_address = address_entry.get().strip()
+                    if mode == "add":
+                        address_entry.delete(0, "end")
+                        address_entry.insert(0, customer_address)
+                    elif mode == "edit" and not current_address:
+                        address_entry.delete(0, "end")
+                        address_entry.insert(0, customer_address)
+                
+                # 关闭搜索窗口（不显示额外提示，避免焦点问题）
+                search_win.destroy()
+            
+            # 双击选择
+            tree.bind("<Double-1>", lambda e: select_customer())
+            
+            # 搜索按钮
+            search_btn = ctk.CTkButton(search_frame, text="🔍 搜索", width=100, fg_color="#4A5568", command=do_search)
+            search_btn.pack(side="left", padx=5)
+            
+            # 按钮区域
+            btn_frame = ctk.CTkFrame(search_win, fg_color="transparent")
+            btn_frame.pack(fill="x", padx=20, pady=(0, 20))
+            
+            ctk.CTkButton(btn_frame, text="✅ 选择", width=120, fg_color="#2B6CB0", command=select_customer).pack(side="left", padx=5)
+            ctk.CTkButton(btn_frame, text="❌ 取消", width=120, fg_color="#A0AEC0", command=search_win.destroy).pack(side="left", padx=5)
+            
+            # 支持回车搜索
+            search_entry.bind("<Return>", lambda e: do_search())
+            
+            # 初始加载所有客户
+            do_search()
+        
+        # 搜索按钮
+        search_customer_btn = ctk.CTkButton(customer_frame, text="🔍", width=50, fg_color="#4A5568", command=open_customer_search)
+        search_customer_btn.pack(side="left")
         
         entries["customer"] = customer_combo
         entries["customer_data_map"] = customer_data_map
 
         # 地址
-        ctk.CTkLabel(form_frame, text="地址", font=("微软雅黑", 16)).grid(row=3, column=0, padx=10, pady=6, sticky="e")
+        ctk.CTkLabel(form_frame, text="地址", font=("微软雅黑", 16)).grid(row=2, column=0, padx=10, pady=6, sticky="e")
         address_entry = ctk.CTkEntry(form_frame, width=240)
         address_entry.insert(0, data["address"])
-        address_entry.grid(row=3, column=1, padx=10, pady=6, sticky="w")
+        address_entry.grid(row=2, column=1, padx=10, pady=6, sticky="w")
         entries["address"] = address_entry
 
         # 快递单号
-        ctk.CTkLabel(form_frame, text="快递单号", font=("微软雅黑", 16)).grid(row=4, column=0, padx=10, pady=6, sticky="e")
+        ctk.CTkLabel(form_frame, text="快递单号", font=("微软雅黑", 16)).grid(row=3, column=0, padx=10, pady=6, sticky="e")
         express_entry = ctk.CTkEntry(form_frame, width=240)
         express_entry.insert(0, data["express_no"])
-        express_entry.grid(row=4, column=1, padx=10, pady=6, sticky="w")
+        express_entry.grid(row=3, column=1, padx=10, pady=6, sticky="w")
         entries["express_no"] = express_entry
 
         # 备注
-        ctk.CTkLabel(form_frame, text="备注", font=("微软雅黑", 16)).grid(row=5, column=0, padx=10, pady=6, sticky="e")
+        ctk.CTkLabel(form_frame, text="备注", font=("微软雅黑", 16)).grid(row=4, column=0, padx=10, pady=6, sticky="e")
         remark_entry = ctk.CTkEntry(form_frame, width=240)
         remark_entry.insert(0, data["remark"])
-        remark_entry.grid(row=5, column=1, padx=10, pady=6, sticky="w")
+        remark_entry.grid(row=4, column=1, padx=10, pady=6, sticky="w")
         entries["remark"] = remark_entry
 
         # ===== 明细区域 =====
@@ -1140,18 +1226,22 @@ class OrderPage(ctk.CTkFrame):
             customer_str = entries["customer"].get()
             customer_data_map = entries["customer_data_map"]
             
-            if not customer_str or customer_str in ["请先搜索客户", "未找到匹配的客户"]:
-                messagebox.showwarning("提示", "请先搜索并选择客户")
+            if not customer_str or customer_str == "无可用客户":
+                messagebox.showwarning("提示", "请选择客户")
                 return
             
             # 从数据映射中获取客户信息
             if customer_str not in customer_data_map:
-                messagebox.showwarning("提示", "客户信息无效，请重新选择")
-                return
-            
-            customer_info = customer_data_map[customer_str]
-            customer_id = customer_info["id"]
-            customer_name = customer_info["name"]
+                # 尝试解析客户ID和名称（兼容手动输入的情况）
+                if " - " in customer_str:
+                    customer_id, customer_name = customer_str.split(" - ", 1)
+                else:
+                    messagebox.showwarning("提示", "客户信息无效，请重新选择")
+                    return
+            else:
+                customer_info = customer_data_map[customer_str]
+                customer_id = customer_info["id"]
+                customer_name = customer_info["name"]
 
             # 收集明细数据
             details = []
