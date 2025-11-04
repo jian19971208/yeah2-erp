@@ -336,7 +336,19 @@ class InventoryPage(ctk.CTkFrame):
     
     def copy_row(self, values):
         """复制整行数据"""
-        copied = "\n".join(f"{h}: {v}" for h, v in zip(self.tree["columns"], values))
+        # 获取表头的中文名称
+        headers = [
+            "✔", "库存编号", "状态", "产品编号", "类型", "数量", "克重",
+            "成本价", "克价", "销售价", "尺寸", "颜色", "材质", "元素", "备注", "创建日期", "更新日期"
+        ]
+        
+        # 跳过勾选列，从第二列开始复制
+        lines = []
+        for h, v in zip(headers[1:], values[1:]):  # 跳过 "✔" 列
+            if v:  # 只复制有值的字段
+                lines.append(f"{h}: {v}")
+        
+        copied = "\n".join(lines)
         pyperclip.copy(copied)
         messagebox.showinfo("复制成功", "整行数据已复制到剪贴板")
     

@@ -290,7 +290,21 @@ class CustomerPage(ctk.CTkFrame):
     
     def copy_row(self, values):
         """复制整行数据"""
-        copied = "\n".join(f"{h}: {v}" for h, v in zip(self.tree["columns"], values))
+        # 获取表头的中文名称
+        headers = [
+            "✔", "ID", "名称", "状态", "电话", "地址", "邮箱", "手围",
+            "来源平台", "来源账号", "微信", "QQ",
+            "最近购买", "总采购额", "最近退货", "总退货额",
+            "购买次数", "退货次数", "备注", "创建日期", "更新日期"
+        ]
+        
+        # 跳过勾选列，从第二列开始复制
+        lines = []
+        for h, v in zip(headers[1:], values[1:]):  # 跳过 "✔" 列
+            if v:  # 只复制有值的字段
+                lines.append(f"{h}: {v}")
+        
+        copied = "\n".join(lines)
         pyperclip.copy(copied)
         messagebox.showinfo("复制成功", "整行数据已复制到剪贴板")
     

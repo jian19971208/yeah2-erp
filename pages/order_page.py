@@ -211,7 +211,7 @@ class OrderPage(ctk.CTkFrame):
                 e = ctk.CTkEntry(scroll, width=240)
                 e.grid(row=i, column=1, padx=8, pady=6, sticky="w", columnspan=3)
                 inputs[key] = {"type": "text", "widget": e}
-            else:
+        else:
                 # 范围查询：从 - 到
                 f1 = ctk.CTkEntry(scroll, width=100, placeholder_text="从")
                 f1.grid(row=i, column=1, padx=(8, 2), pady=6, sticky="w")
@@ -278,7 +278,7 @@ class OrderPage(ctk.CTkFrame):
         col_id = self.tree.identify_column(event.x)
         
         if not item_id or not col_id:
-            return
+                return
         
         # 选中该行
         self.tree.selection_set(item_id)
@@ -319,7 +319,20 @@ class OrderPage(ctk.CTkFrame):
     
     def copy_row(self, values):
         """复制整行数据"""
-        copied = "\n".join(f"{h}: {v}" for h, v in zip(self.tree["columns"], values))
+        # 获取表头的中文名称
+        headers = [
+            "✔", "订单号", "状态", "客户ID", "客户名称",
+            "地址", "快递单号", "明细", "销售价", "成本价",
+            "备注", "创建日期", "更新日期"
+        ]
+        
+        # 跳过勾选列，从第二列开始复制
+        lines = []
+        for h, v in zip(headers[1:], values[1:]):  # 跳过 "✔" 列
+            if v:  # 只复制有值的字段
+                lines.append(f"{h}: {v}")
+        
+        copied = "\n".join(lines)
         pyperclip.copy(copied)
         messagebox.showinfo("复制成功", "整行数据已复制到剪贴板")
     
@@ -466,7 +479,7 @@ class OrderPage(ctk.CTkFrame):
             self.conn.commit()
             messagebox.showinfo("成功", "订单已完成，库存已扣减！")
             self.refresh_table()
-            
+
         except Exception as e:
             self.conn.rollback()
             messagebox.showerror("错误", str(e))
@@ -764,6 +777,8 @@ class OrderPage(ctk.CTkFrame):
 
             # 收集明细数据
             details = []
+            product_codes_seen = set()  # 用于检测重复的产品编码
+            
             for row in detail_rows:
                 product_code = row["product"].get()
                 qty_str = row["qty"].get().strip()
@@ -779,6 +794,12 @@ class OrderPage(ctk.CTkFrame):
                     sell = float(sell_str) if sell_str else 0
                     
                     if qty > 0:  # 只添加数量大于0的明细
+                        # 检查产品编码是否重复
+                        if product_code in product_codes_seen:
+                            messagebox.showwarning("提示", f"产品编码 {product_code} 已存在，请勿重复添加！")
+                            return
+                        
+                        product_codes_seen.add(product_code)
                         details.append({
                             "product_code": product_code,
                             "qty": qty,
