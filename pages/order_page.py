@@ -6,6 +6,7 @@ import customtkinter as ctk
 from tkinter import ttk, messagebox
 import pyperclip
 from data.db_init import get_user_db_path
+from pages.setting_page import get_table_settings
 
 DB_PATH = get_user_db_path()
 PAGE_SIZE = 10
@@ -22,40 +23,46 @@ class OrderPage(ctk.CTkFrame):
         self.selected_items = set()
         self.search_filters = {}
 
+        # 获取表格设置
+        settings = get_table_settings()
+        content_font_size = settings.get("table_content_font_size", 20)
+        heading_font_size = settings.get("table_heading_font_size", 22)
+        row_height = settings.get("table_row_height", 36)
+
         style = ttk.Style()
-        style.configure("Treeview", font=("微软雅黑", 20), rowheight=36)
-        style.configure("Treeview.Heading", font=("微软雅黑", 22, "bold"))
+        style.configure("Treeview", font=("微软雅黑", content_font_size), rowheight=row_height)
+        style.configure("Treeview.Heading", font=("微软雅黑", heading_font_size, "bold"))
 
         # ======== 工具栏 ========
         toolbar = ctk.CTkFrame(self, fg_color="#F7F9FC")
         toolbar.pack(fill="x", pady=(10, 5), padx=10)
 
-        ctk.CTkButton(toolbar, text="➕ 新增订单", width=140, fg_color="#2B6CB0",
-                      command=self.add_order).pack(side="left", padx=5)
-        ctk.CTkButton(toolbar, text="✏️ 编辑订单", width=140, fg_color="#319795",
-                      command=self.edit_order).pack(side="left", padx=5)
-        ctk.CTkButton(toolbar, text="🗑 删除订单", width=140, fg_color="#E53E3E",
-                      command=self.delete_order).pack(side="left", padx=5)
-        ctk.CTkButton(toolbar, text="✅ 完成订单", width=140, fg_color="#38A169",
-                      command=self.complete_order).pack(side="left", padx=5)
-        ctk.CTkButton(toolbar, text="📦 送达订单", width=140, fg_color="#805AD5",
-                      command=self.deliver_order).pack(side="left", padx=5)
-        ctk.CTkButton(toolbar, text="🔄 刷新", width=120, fg_color="#A0AEC0",
-                      command=self.reset_filters).pack(side="right", padx=5)
-        ctk.CTkButton(toolbar, text="🔍 搜索", width=140, fg_color="#4A5568",
-                      command=self.open_search_window).pack(side="right", padx=5)
+        ctk.CTkButton(toolbar, text="➕ 新增", width=100, fg_color="#2B6CB0",
+                      command=self.add_order).pack(side="left", padx=3)
+        ctk.CTkButton(toolbar, text="✏️ 编辑", width=100, fg_color="#319795",
+                      command=self.edit_order).pack(side="left", padx=3)
+        ctk.CTkButton(toolbar, text="🗑 删除", width=100, fg_color="#E53E3E",
+                      command=self.delete_order).pack(side="left", padx=3)
+        ctk.CTkButton(toolbar, text="✅ 完成", width=100, fg_color="#38A169",
+                      command=self.complete_order).pack(side="left", padx=3)
+        ctk.CTkButton(toolbar, text="📦 送达", width=100, fg_color="#805AD5",
+                      command=self.deliver_order).pack(side="left", padx=3)
+        ctk.CTkButton(toolbar, text="🔄 刷新", width=100, fg_color="#A0AEC0",
+                      command=self.reset_filters).pack(side="right", padx=3)
+        ctk.CTkButton(toolbar, text="🔍 搜索", width=100, fg_color="#4A5568",
+                      command=self.open_search_window).pack(side="right", padx=3)
 
         # ======== 表格 ========
         table_frame = ctk.CTkFrame(self, fg_color="#FFFFFF")
         table_frame.pack(fill="both", expand=True, padx=10, pady=(5, 10))
 
         self.columns = [
-            "select", "copy", "id", "order_no", "order_status", "customer_id", "customer_name",
+            "select", "copy", "order_no", "order_status", "customer_id", "customer_name",
             "address", "express_no", "detail", "sell_price", "cost_price",
             "remark", "create_time", "update_time"
         ]
         headers = [
-            "✔", "操作", "ID", "订单号", "状态", "客户ID", "客户名称",
+            "✔", "操作", "订单号", "状态", "客户ID", "客户名称",
             "地址", "快递单号", "明细", "销售价", "成本价",
             "备注", "创建日期", "更新日期"
         ]
@@ -140,9 +147,8 @@ class OrderPage(ctk.CTkFrame):
                 except:
                     detail_str = str(r[9])
             
-            # 重组数据：id, order_no, order_status, customer_id, customer_name, address, express_no, detail, sell_price, cost_price, remark, create_time, update_time
+            # 重组数据（不显示ID）：order_no, order_status, customer_id, customer_name, address, express_no, detail, sell_price, cost_price, remark, create_time, update_time
             display_row = (
-                r[0],  # id
                 r[1],  # order_no
                 r[2],  # order_status
                 r[3],  # customer_id
@@ -152,11 +158,12 @@ class OrderPage(ctk.CTkFrame):
                 detail_str,  # detail (格式化后)
                 r[7],  # sell_price
                 r[8],  # cost_price
-                r[9],  # remark
-                r[10],  # create_time
-                r[11]   # update_time
+                r[10],  # remark
+                r[11],  # create_time
+                r[12]   # update_time
             )
-            self.tree.insert("", "end", values=("☐", "复制") + display_row)
+            # 保存ID用于操作，但不显示
+            self.tree.insert("", "end", values=("☐", "复制") + display_row, tags=(r[0],))
 
         self.page_label.configure(text=f"第 {self.current_page} / {self.total_pages} 页")
         self.total_label.configure(text=f"共 {total} 条记录")
@@ -197,13 +204,15 @@ class OrderPage(ctk.CTkFrame):
             ctk.CTkLabel(scroll, text=label, font=("微软雅黑", 16)).grid(row=i, column=0, padx=8, pady=6, sticky="e")
             if ftype == "text":
                 e = ctk.CTkEntry(scroll, width=240)
-                e.grid(row=i, column=1, padx=8, pady=6, sticky="w", columnspan=2)
+                e.grid(row=i, column=1, padx=8, pady=6, sticky="w", columnspan=3)
                 inputs[key] = {"type": "text", "widget": e}
             else:
-                f1 = ctk.CTkEntry(scroll, width=110, placeholder_text="从")
-                f2 = ctk.CTkEntry(scroll, width=110, placeholder_text="到")
-                f1.grid(row=i, column=1, padx=(0, 5), pady=6, sticky="w")
-                f2.grid(row=i, column=2, padx=(0, 5), pady=6, sticky="w")
+                # 范围查询：从 - 到
+                f1 = ctk.CTkEntry(scroll, width=100, placeholder_text="从")
+                f1.grid(row=i, column=1, padx=(8, 2), pady=6, sticky="w")
+                ctk.CTkLabel(scroll, text="-", font=("微软雅黑", 16)).grid(row=i, column=2, padx=2, pady=6)
+                f2 = ctk.CTkEntry(scroll, width=100, placeholder_text="到")
+                f2.grid(row=i, column=3, padx=(2, 8), pady=6, sticky="w")
                 inputs[key] = {"type": "range", "widget": (f1, f2)}
 
         def confirm():
@@ -232,7 +241,12 @@ class OrderPage(ctk.CTkFrame):
         if not item_id:
             return
         vals = list(self.tree.item(item_id, "values"))
-        oid = vals[2]  # id 在第3列（索引2）
+        # 从 tags 中获取订单ID
+        tags = self.tree.item(item_id, "tags")
+        oid = tags[0] if tags else None
+        
+        if not oid:
+            return
 
         if col == "#2":  # 复制列
             copied = "\n".join(f"{h}: {v}" for h, v in zip(self.tree["columns"][2:], vals[2:]))

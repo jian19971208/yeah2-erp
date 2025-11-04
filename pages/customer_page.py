@@ -5,6 +5,7 @@ import customtkinter as ctk
 from tkinter import ttk, messagebox
 import pyperclip
 from data.db_init import get_user_db_path
+from pages.setting_page import get_table_settings
 
 DB_PATH = get_user_db_path()
 PAGE_SIZE = 10
@@ -21,9 +22,15 @@ class CustomerPage(ctk.CTkFrame):
         self.selected_items = set()
         self.search_filters = {}
 
+        # 获取表格设置
+        settings = get_table_settings()
+        content_font_size = settings.get("table_content_font_size", 20)
+        heading_font_size = settings.get("table_heading_font_size", 22)
+        row_height = settings.get("table_row_height", 36)
+
         style = ttk.Style()
-        style.configure("Treeview", font=("微软雅黑", 20), rowheight=36)
-        style.configure("Treeview.Heading", font=("微软雅黑", 22, "bold"))
+        style.configure("Treeview", font=("微软雅黑", content_font_size), rowheight=row_height)
+        style.configure("Treeview.Heading", font=("微软雅黑", heading_font_size, "bold"))
 
         # ======== 工具栏 ========
         toolbar = ctk.CTkFrame(self, fg_color="#F7F9FC")
@@ -170,13 +177,15 @@ class CustomerPage(ctk.CTkFrame):
             ctk.CTkLabel(scroll, text=label, font=("微软雅黑", 16)).grid(row=i, column=0, padx=8, pady=6, sticky="e")
             if ftype == "text":
                 e = ctk.CTkEntry(scroll, width=240)
-                e.grid(row=i, column=1, padx=8, pady=6, sticky="w")
+                e.grid(row=i, column=1, padx=8, pady=6, sticky="w", columnspan=3)
                 inputs[key] = {"type": "text", "widget": e}
             else:
-                f1 = ctk.CTkEntry(scroll, width=110, placeholder_text="从")
-                f2 = ctk.CTkEntry(scroll, width=110, placeholder_text="到")
-                f1.grid(row=i, column=1, padx=(0, 5), pady=6, sticky="w")
-                f2.grid(row=i, column=2, padx=(0, 5), pady=6, sticky="w")
+                # 范围查询：从 - 到
+                f1 = ctk.CTkEntry(scroll, width=100, placeholder_text="从")
+                f1.grid(row=i, column=1, padx=(8, 2), pady=6, sticky="w")
+                ctk.CTkLabel(scroll, text="-", font=("微软雅黑", 16)).grid(row=i, column=2, padx=2, pady=6)
+                f2 = ctk.CTkEntry(scroll, width=100, placeholder_text="到")
+                f2.grid(row=i, column=3, padx=(2, 8), pady=6, sticky="w")
                 inputs[key] = {"type": "range", "widget": (f1, f2)}
 
         def confirm():
@@ -312,7 +321,7 @@ class CustomerPage(ctk.CTkFrame):
             if not vals["customer_name"]:
                 messagebox.showwarning("提示", "客户名称不能为空")
                 return
-            now = datetime.datetime.now().strftime("%Y-%m-%d")  # ✅ 年月日格式
+            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             if mode == "add":
                 self.cursor.execute("""

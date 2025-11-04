@@ -3,6 +3,7 @@ from pages.home_page import HomePage
 from pages.customer_page import CustomerPage
 from pages.inventory_page import InventoryPage
 from pages.order_page import OrderPage
+from pages.setting_page import SettingPage
 
 # ======= 全局外观 =======
 ctk.set_appearance_mode("light")
@@ -38,7 +39,8 @@ class YeahBusinessApp(ctk.CTk):
             "首页": ctk.CTkButton(self.sidebar_frame, text="🏠 首页", command=lambda: self.show_frame("home")),
             "客户管理": ctk.CTkButton(self.sidebar_frame, text="👤 客户管理", command=lambda: self.show_frame("customer")),
             "库存管理": ctk.CTkButton(self.sidebar_frame, text="📦 库存管理", command=lambda: self.show_frame("inventory")),
-            "订单管理": ctk.CTkButton(self.sidebar_frame, text="🧾 订单管理", command=lambda: self.show_frame("order"))
+            "订单管理": ctk.CTkButton(self.sidebar_frame, text="🧾 订单管理", command=lambda: self.show_frame("order")),
+            "系统设置": ctk.CTkButton(self.sidebar_frame, text="⚙️ 系统设置", command=lambda: self.show_frame("setting"))
         }
 
         for btn in self.menu_buttons.values():
@@ -53,7 +55,8 @@ class YeahBusinessApp(ctk.CTk):
             "home": HomePage(self.main_frame),
             "customer": CustomerPage(self.main_frame),
             "inventory": InventoryPage(self.main_frame),
-            "order": OrderPage(self.main_frame)
+            "order": OrderPage(self.main_frame),
+            "setting": SettingPage(self.main_frame)
         }
 
         for frame in self.frames.values():
