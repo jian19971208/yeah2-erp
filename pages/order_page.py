@@ -4,6 +4,7 @@ import math
 import datetime
 import customtkinter as ctk
 from tkinter import ttk, messagebox
+import pyperclip
 from data.db_init import get_user_db_path
 
 DB_PATH = get_user_db_path()
@@ -13,6 +14,7 @@ PAGE_SIZE = 10
 class OrderPage(ctk.CTkFrame):
     def __init__(self, parent):
         super().__init__(parent, fg_color="#F7F9FC")
+
         self.conn = sqlite3.connect(DB_PATH)
         self.cursor = self.conn.cursor()
         self.current_page = 1
@@ -21,414 +23,170 @@ class OrderPage(ctk.CTkFrame):
         self.search_filters = {}
 
         style = ttk.Style()
-        style.configure("Treeview", font=("微软雅黑", 20), rowheight=34)
+        style.configure("Treeview", font=("微软雅黑", 20), rowheight=36)
         style.configure("Treeview.Heading", font=("微软雅黑", 22, "bold"))
 
         # ======== 工具栏 ========
         toolbar = ctk.CTkFrame(self, fg_color="#F7F9FC")
         toolbar.pack(fill="x", pady=(10, 5), padx=10)
-        ctk.CTkButton(toolbar, text="➕ 新增订单", width=120, fg_color="#2B6CB0", command=self.add_order).pack(side="left", padx=5)
-        ctk.CTkButton(toolbar, text="✏️ 编辑订单", width=120, fg_color="#319795", command=self.edit_order).pack(side="left", padx=5)
-        ctk.CTkButton(toolbar, text="🗑 删除订单", width=120, fg_color="#E53E3E", command=self.delete_order).pack(side="left", padx=5)
-        ctk.CTkButton(toolbar, text="✅ 完成", width=120, fg_color="#38A169", command=self.complete_order).pack(side="left", padx=5)
-        ctk.CTkButton(toolbar, text="📦 送达", width=120, fg_color="#805AD5", command=self.deliver_order).pack(side="left", padx=5)
-        ctk.CTkButton(toolbar, text="🔍 搜索", width=120, fg_color="#4A5568", command=self.open_search_window).pack(side="right", padx=5)
-        ctk.CTkButton(toolbar, text="🔄 刷新", width=120, fg_color="#A0AEC0", command=self.reset_filters).pack(side="right", padx=5)
+
+        ctk.CTkButton(toolbar, text="➕ 新增订单", width=140, fg_color="#2B6CB0",
+                      command=self.add_order).pack(side="left", padx=5)
+        ctk.CTkButton(toolbar, text="✏️ 编辑订单", width=140, fg_color="#319795",
+                      command=self.edit_order).pack(side="left", padx=5)
+        ctk.CTkButton(toolbar, text="🗑 删除订单", width=140, fg_color="#E53E3E",
+                      command=self.delete_order).pack(side="left", padx=5)
+        ctk.CTkButton(toolbar, text="✅ 完成订单", width=140, fg_color="#38A169",
+                      command=self.complete_order).pack(side="left", padx=5)
+        ctk.CTkButton(toolbar, text="📦 送达订单", width=140, fg_color="#805AD5",
+                      command=self.deliver_order).pack(side="left", padx=5)
+        ctk.CTkButton(toolbar, text="🔄 刷新", width=120, fg_color="#A0AEC0",
+                      command=self.reset_filters).pack(side="right", padx=5)
+        ctk.CTkButton(toolbar, text="🔍 搜索", width=140, fg_color="#4A5568",
+                      command=self.open_search_window).pack(side="right", padx=5)
 
         # ======== 表格 ========
         table_frame = ctk.CTkFrame(self, fg_color="#FFFFFF")
         table_frame.pack(fill="both", expand=True, padx=10, pady=(5, 10))
 
-        self.columns = ["select", "id", "order_no", "order_status", "customer_name", "cost_price", "sell_price", "detail", "remark", "update_time"]
-        headers = ["✔", "ID", "订单号", "状态", "客户", "成本价", "销售价", "明细", "备注", "更新时间"]
+        self.columns = [
+            "select", "copy", "id", "order_no", "order_status", "customer_id", "customer_name",
+            "address", "express_no", "detail", "sell_price", "cost_price",
+            "remark", "create_time", "update_time"
+        ]
+        headers = [
+            "✔", "操作", "ID", "订单号", "状态", "客户ID", "客户名称",
+            "地址", "快递单号", "明细", "销售价", "成本价",
+            "备注", "创建日期", "更新日期"
+        ]
+
         self.tree = ttk.Treeview(table_frame, columns=self.columns, show="headings", height=10)
         for c, h in zip(self.columns, headers):
             self.tree.heading(c, text=h)
-            self.tree.column(c, width=150 if c not in ["select", "id"] else 80, anchor="center")
+            self.tree.column(c, width=160, anchor="center")
 
         y_scroll = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=y_scroll.set)
+        x_scroll = ttk.Scrollbar(table_frame, orient="horizontal", command=self.tree.xview)
+        self.tree.configure(yscrollcommand=y_scroll.set, xscrollcommand=x_scroll.set)
         y_scroll.pack(side="right", fill="y")
+        x_scroll.pack(side="bottom", fill="x")
         self.tree.pack(fill="both", expand=True)
         self.tree.bind("<ButtonRelease-1>", self.toggle_select)
 
         # ======== 分页 ========
         self.page_frame = ctk.CTkFrame(self, fg_color="#F7F9FC")
         self.page_frame.pack(fill="x", pady=5)
-        ctk.CTkButton(self.page_frame, text="⬅ 上一页", width=100, command=self.prev_page).pack(side="left", padx=10)
-        self.page_label = ctk.CTkLabel(self.page_frame, text="第 1 / 1 页", font=("微软雅黑", 14))
+        ctk.CTkButton(self.page_frame, text="⬅ 上一页", width=100,
+                      command=self.prev_page).pack(side="left", padx=10)
+        self.page_label = ctk.CTkLabel(self.page_frame, text="第 1 / 1 页", font=("微软雅黑", 16))
         self.page_label.pack(side="left", padx=5)
-        ctk.CTkButton(self.page_frame, text="下一页 ➡", width=100, command=self.next_page).pack(side="left", padx=10)
-        self.total_label = ctk.CTkLabel(self.page_frame, text="", font=("微软雅黑", 14))
+        ctk.CTkButton(self.page_frame, text="下一页 ➡", width=100,
+                      command=self.next_page).pack(side="left", padx=10)
+        self.total_label = ctk.CTkLabel(self.page_frame, text="", font=("微软雅黑", 16))
         self.total_label.pack(side="right", padx=10)
+
         self.refresh_table()
-    # ========== 查询刷新 ==========
+
+    # ========== 刷新表格 ==========
     def refresh_table(self):
         for row in self.tree.get_children():
             self.tree.delete(row)
 
-        sql = 'SELECT id, order_no, order_status, customer_name, cost_price, sell_price, detail, remark, update_time FROM "order"'
+        base_sql = 'SELECT * FROM "order"'
         params, where = [], []
-        for k, v in self.search_filters.items():
-            if v:
-                where.append(f"{k} LIKE ?")
-                params.append(f"%{v}%")
-        if where:
-            sql += " WHERE " + " AND ".join(where)
 
-        self.cursor.execute(f"SELECT COUNT(*) FROM ({sql})", params)
+        for field, val in self.search_filters.items():
+            if not val:
+                continue
+            if isinstance(val, dict):
+                min_v, max_v = val.get("min"), val.get("max")
+                if min_v and max_v:
+                    where.append(f"{field} BETWEEN ? AND ?")
+                    params += [min_v, max_v]
+                elif min_v:
+                    where.append(f"{field} >= ?")
+                    params.append(min_v)
+                elif max_v:
+                    where.append(f"{field} <= ?")
+                    params.append(max_v)
+            else:
+                where.append(f"{field} LIKE ?")
+                params.append(f"%{val}%")
+
+        if where:
+            base_sql += " WHERE " + " AND ".join(where)
+
+        self.cursor.execute(f"SELECT COUNT(*) FROM ({base_sql})", params)
         total = self.cursor.fetchone()[0]
         self.total_pages = max(1, math.ceil(total / PAGE_SIZE))
         offset = (self.current_page - 1) * PAGE_SIZE
-        self.cursor.execute(sql + " ORDER BY id DESC LIMIT ? OFFSET ?", (*params, PAGE_SIZE, offset))
 
-        for r in self.cursor.fetchall():
-            try:
-                details = json.loads(r[6]) if r[6] else []
-                detail_text = "; ".join([f"{d['product_code']}×{d['qty']} 成:{d['cost']} 售:{d['sell']}" for d in details])
-            except Exception:
-                detail_text = r[6]
-            self.tree.insert("", "end", values=("☐",) + tuple(list(r[:6]) + [detail_text, r[7], r[8]]))
+        self.cursor.execute(base_sql + " ORDER BY id DESC LIMIT ? OFFSET ?", (*params, PAGE_SIZE, offset))
+        rows = self.cursor.fetchall()
 
-        self.page_label.configure(text=f"第 {self.current_page}/{self.total_pages} 页")
-        self.total_label.configure(text=f"共 {total} 条")
+        for r in rows:
+            # 格式化 detail 字段
+            detail_str = ""
+            if r[9]:  # detail 字段在第10个位置（索引9）
+                try:
+                    details = json.loads(r[9])
+                    detail_lines = []
+                    for d in details:
+                        detail_lines.append(
+                            f"产品:{d.get('product_code', '')} 数量:{d.get('qty', 0)} "
+                            f"成本:{d.get('cost', 0)} 售价:{d.get('sell', 0)}"
+                        )
+                    detail_str = "; ".join(detail_lines)
+                except:
+                    detail_str = str(r[9])
+            
+            # 重组数据：id, order_no, order_status, customer_id, customer_name, address, express_no, detail, sell_price, cost_price, remark, create_time, update_time
+            display_row = (
+                r[0],  # id
+                r[1],  # order_no
+                r[2],  # order_status
+                r[3],  # customer_id
+                r[4],  # customer_name
+                r[5],  # address
+                r[6],  # express_no
+                detail_str,  # detail (格式化后)
+                r[7],  # sell_price
+                r[8],  # cost_price
+                r[9],  # remark
+                r[10],  # create_time
+                r[11]   # update_time
+            )
+            self.tree.insert("", "end", values=("☐", "复制") + display_row)
 
+        self.page_label.configure(text=f"第 {self.current_page} / {self.total_pages} 页")
+        self.total_label.configure(text=f"共 {total} 条记录")
+
+    # ========== 重置 ==========
     def reset_filters(self):
         self.search_filters.clear()
         self.current_page = 1
         self.refresh_table()
 
-    def toggle_select(self, e):
-        iid = self.tree.identify_row(e.y)
-        if not iid:
-            return
-        vals = list(self.tree.item(iid, "values"))
-        rid = vals[1]
-        if vals[0] == "☐":
-            vals[0] = "☑"
-            self.selected_items.add(rid)
-        else:
-            vals[0] = "☐"
-            self.selected_items.discard(rid)
-        self.tree.item(iid, values=vals)
-
-    def prev_page(self):
-        if self.current_page > 1:
-            self.current_page -= 1
-            self.refresh_table()
-
-    def next_page(self):
-        if self.current_page < self.total_pages:
-            self.current_page += 1
-            self.refresh_table()
-    # ========== 新增 / 编辑 ==========
-    def add_order(self):
-        self._open_edit_window("add")
-
-    def edit_order(self):
-        if len(self.selected_items) != 1:
-            messagebox.showwarning("提示", "请选择一条记录编辑")
-            return
-        self._open_edit_window("edit", list(self.selected_items)[0])
-
-    def _open_edit_window(self, mode, oid=None):
-        win = ctk.CTkToplevel(self)
-        win.geometry("880x850")
-        win.title("新增订单" if mode == "add" else "编辑订单")
-        win.grab_set()
-
-        # ===== 查询客户与库存信息 =====
-        self.cursor.execute("SELECT id, customer_name FROM customer")
-        customers = self.cursor.fetchall()
-        self.cursor.execute("SELECT product_code, stock_qty, cost_price, sell_price FROM inventory")
-        inv_data = self.cursor.fetchall()
-        inv_map = {i[0]: {"qty": i[1], "cost": i[2], "sell": i[3]} for i in inv_data}
-        products = list(inv_map.keys())
-
-        # ===== 若是编辑，取出原始数据 =====
-        order_data = {}
-        if mode == "edit":
-            self.cursor.execute('SELECT * FROM "order" WHERE id=?', (oid,))
-            r = self.cursor.fetchone()
-            if not r:
-                messagebox.showerror("错误", "订单不存在")
-                return
-            cols = [d[0] for d in self.cursor.description]
-            order_data = dict(zip(cols, r))
-
-        # ===== 顶部输入区域 =====
-        top = ctk.CTkFrame(win, fg_color="#FFFFFF")
-        top.pack(fill="x", padx=10, pady=10)
-        entries = {}
-
-        def gen_no():
-            today = datetime.datetime.now().strftime("%Y%m%d")
-            prefix = f"ORD{today}"
-            self.cursor.execute('SELECT COUNT(*) FROM "order" WHERE order_no LIKE ?', (f"{prefix}%",))
-            count = self.cursor.fetchone()[0] + 1
-            return f"{prefix}{count:03d}"
-
-        fields = [
-            ("订单号", "order_no"),
-            ("客户", "customer_id"),
-            ("地址", "address"),
-            ("快递单号", "express_no"),
-            ("备注", "remark")
-        ]
-
-        for i, (lbl, key) in enumerate(fields):
-            ctk.CTkLabel(top, text=lbl, font=("微软雅黑", 16)).grid(row=i, column=0, padx=10, pady=6, sticky="e")
-            if key == "order_no":
-                e = ctk.CTkEntry(top, width=260)
-                e.insert(0, gen_no() if mode == "add" else order_data.get("order_no", ""))
-                e.configure(state="readonly")
-            elif key == "customer_id":
-                names = [f"{c[0]} - {c[1]}" for c in customers]
-                combo = ctk.CTkComboBox(top, values=names, width=260)
-                if mode == "edit" and order_data.get("customer_id"):
-                    matched = [n for n in names if str(order_data["customer_id"]) in n]
-                    combo.set(matched[0] if matched else names[0])
-                else:
-                    combo.set(names[0] if names else "")
-                entries[key] = combo
-                combo.grid(row=i, column=1, padx=10, pady=6, sticky="w")
-                continue
-            else:
-                e = ctk.CTkEntry(top, width=260)
-                e.insert(0, str(order_data.get(key, "")))
-            e.grid(row=i, column=1, padx=10, pady=6, sticky="w")
-            entries[key] = e
-
-        # ===== 明细区域 =====
-        detail_frame = ctk.CTkScrollableFrame(win, width=820, height=350, fg_color="#F7F9FC")
-        detail_frame.pack(fill="both", padx=10, pady=10)
-        detail_rows = []
-
-        def calc():
-            cost_sum = sell_sum = 0
-            for _, cb, qty, cost, sell in detail_rows:
-                try:
-                    qv = float(qty.get() or 0)
-                    cv = float(cost.get() or 0)
-                    sv = float(sell.get() or 0)
-                    cost_sum += qv * cv
-                    sell_sum += qv * sv
-                except ValueError:
-                    pass
-            cost_lbl.configure(text=f"{cost_sum:.2f}")
-            sell_lbl.configure(text=f"{sell_sum:.2f}")
-
-        def add_row(d=None):
-            fr = ctk.CTkFrame(detail_frame, fg_color="#FFFFFF")
-            fr.pack(fill="x", padx=5, pady=5)
-
-            combo = ctk.CTkComboBox(fr, values=products, width=160)
-            qty = ctk.CTkEntry(fr, width=70, placeholder_text="数量")
-            cost = ctk.CTkEntry(fr, width=100, placeholder_text="成本价")
-            sell = ctk.CTkEntry(fr, width=100, placeholder_text="销售价")
-            rm_btn = ctk.CTkButton(fr, text="🗑", width=40, fg_color="#E53E3E", command=lambda: rm_row(fr))
-
-            combo.pack(side="left", padx=5)
-            qty.pack(side="left", padx=5)
-            cost.pack(side="left", padx=5)
-            sell.pack(side="left", padx=5)
-            rm_btn.pack(side="right", padx=5)
-            detail_rows.append((fr, combo, qty, cost, sell))
-
-            # 自动填充库存价
-            def fill(_):
-                p = combo.get()
-                if p in inv_map:
-                    cost.delete(0, "end")
-                    sell.delete(0, "end")
-                    cost.insert(0, str(inv_map[p]["cost"]))
-                    sell.insert(0, str(inv_map[p]["sell"]))
-                calc()
-
-            combo.bind("<<ComboboxSelected>>", fill)
-            qty.bind("<KeyRelease>", lambda e: calc())
-            cost.bind("<KeyRelease>", lambda e: calc())
-            sell.bind("<KeyRelease>", lambda e: calc())
-
-            if d:
-                combo.set(d["product_code"])
-                qty.insert(0, str(d["qty"]))
-                cost.insert(0, str(d["cost"]))
-                sell.insert(0, str(d["sell"]))
-                calc()
-
-        def rm_row(fr):
-            for i, (f, *_rest) in enumerate(detail_rows):
-                if f == fr:
-                    f.destroy()
-                    detail_rows.pop(i)
-                    break
-            calc()
-
-        if mode == "edit" and order_data.get("detail"):
-            for d in json.loads(order_data["detail"]):
-                add_row(d)
-        else:
-            add_row()
-
-        ctk.CTkButton(win, text="➕ 添加明细", width=160, fg_color="#2B6CB0", command=lambda: add_row()).pack(pady=5)
-        # ===== 汇总区域 =====
-        total_frame = ctk.CTkFrame(win, fg_color="#FFFFFF")
-        total_frame.pack(fill="x", padx=10, pady=10)
-        ctk.CTkLabel(total_frame, text="订单成本价：", font=("微软雅黑", 16)).pack(side="left")
-        cost_lbl = ctk.CTkLabel(total_frame, text="0.00", font=("微软雅黑", 16))
-        cost_lbl.pack(side="left", padx=5)
-        ctk.CTkLabel(total_frame, text="销售价：", font=("微软雅黑", 16)).pack(side="left", padx=10)
-        sell_lbl = ctk.CTkLabel(total_frame, text="0.00", font=("微软雅黑", 16))
-        sell_lbl.pack(side="left", padx=5)
-
-        # ===== 保存逻辑 =====
-        def confirm():
-            cid_full = entries["customer_id"].get()
-            cid = cid_full.split(" - ")[0] if " - " in cid_full else cid_full
-            cname = cid_full.split(" - ")[1] if " - " in cid_full else ""
-
-            details = []
-            for _, combo, qty, cost, sell in detail_rows:
-                if not combo.get():
-                    continue
-                details.append({
-                    "product_code": combo.get(),
-                    "qty": float(qty.get() or 0),
-                    "cost": float(cost.get() or 0),
-                    "sell": float(sell.get() or 0)
-                })
-            cost_total = float(cost_lbl.cget("text"))
-            sell_total = float(sell_lbl.cget("text"))
-            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            if mode == "add":
-                self.cursor.execute('''
-                    INSERT INTO "order" (order_no, order_status, customer_id, customer_name, address, express_no,
-                                         sell_price, cost_price, detail, remark, create_time, update_time)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (entries["order_no"].get(), "草稿", cid, cname,
-                      entries["address"].get(), entries["express_no"].get(),
-                      sell_total, cost_total, json.dumps(details, ensure_ascii=False),
-                      entries["remark"].get(), now, now))
-            else:
-                self.cursor.execute('SELECT order_status FROM "order" WHERE id=?', (oid,))
-                st = self.cursor.fetchone()
-                if st and st[0] != "草稿":
-                    messagebox.showwarning("警告", "已完成或已送达订单不可修改！")
-                    win.destroy()
-                    return
-                self.cursor.execute('''
-                    UPDATE "order"
-                    SET customer_id=?, customer_name=?, address=?, express_no=?, sell_price=?, cost_price=?,
-                        detail=?, remark=?, update_time=?
-                    WHERE id=?
-                ''', (cid, cname, entries["address"].get(), entries["express_no"].get(),
-                      sell_total, cost_total, json.dumps(details, ensure_ascii=False),
-                      entries["remark"].get(), now, oid))
-
-            self.conn.commit()
-            win.destroy()
-            self.refresh_table()
-            messagebox.showinfo("成功", "订单已保存！")
-
-        ctk.CTkButton(win, text="💾 保存订单", fg_color="#2B6CB0", width=160, command=confirm).pack(pady=15)
-
-    # ========== 删除 ==========
-    def delete_order(self):
-        if not self.selected_items:
-            messagebox.showwarning("提示", "请选择要删除的订单")
-            return
-        for oid in self.selected_items:
-            self.cursor.execute('SELECT order_status FROM "order" WHERE id=?', (oid,))
-            st = self.cursor.fetchone()
-            if not st or st[0] != "草稿":
-                messagebox.showerror("错误", f"订单 {oid} 不是草稿，无法删除")
-                return
-        if messagebox.askyesno("确认", "确定删除选中的草稿订单？"):
-            for oid in self.selected_items:
-                self.cursor.execute('DELETE FROM "order" WHERE id=?', (oid,))
-            self.conn.commit()
-            self.selected_items.clear()
-            self.refresh_table()
-            messagebox.showinfo("成功", "已删除草稿订单！")
-
-    # ========== 完成 ==========
-    def complete_order(self):
-        if len(self.selected_items) != 1:
-            messagebox.showwarning("提示", "请选择一条订单进行完成操作")
-            return
-        oid = list(self.selected_items)[0]
-        c = self.conn.cursor()
-        try:
-            c.execute('BEGIN')
-            c.execute('SELECT order_status, detail FROM "order" WHERE id=?', (oid,))
-            row = c.fetchone()
-            if not row:
-                raise Exception("订单不存在")
-            status, detail = row
-            if status != "草稿":
-                raise Exception("只有草稿订单可以完成")
-
-            items = json.loads(detail or "[]")
-            # 校验库存
-            for d in items:
-                p, q = d["product_code"], float(d["qty"])
-                c.execute("SELECT stock_qty FROM inventory WHERE product_code=?", (p,))
-                r = c.fetchone()
-                if not r or r[0] < q:
-                    raise Exception(f"产品 {p} 库存不足（当前 {r[0] if r else 0}, 需要 {q}）")
-
-            # 扣减库存
-            for d in items:
-                c.execute("UPDATE inventory SET stock_qty = stock_qty - ? WHERE product_code=?", (d["qty"], d["product_code"]))
-
-            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            c.execute('UPDATE "order" SET order_status="已完成", update_time=? WHERE id=?', (now, oid))
-            c.execute("COMMIT")
-            messagebox.showinfo("成功", "订单已完成并扣减库存！")
-            self.refresh_table()
-
-        except Exception as e:
-            c.execute("ROLLBACK")
-            messagebox.showerror("错误", str(e))
-
-    # ========== 送达 ==========
-    def deliver_order(self):
-        if len(self.selected_items) != 1:
-            messagebox.showwarning("提示", "请选择一条已完成订单送达")
-            return
-        oid = list(self.selected_items)[0]
-        self.cursor.execute('SELECT order_status FROM "order" WHERE id=?', (oid,))
-        st = self.cursor.fetchone()
-        if not st or st[0] != "已完成":
-            messagebox.showerror("错误", "只有已完成订单可以送达")
-            return
-        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.cursor.execute('UPDATE "order" SET order_status="已送达", update_time=? WHERE id=?', (now, oid))
-        self.conn.commit()
-        messagebox.showinfo("成功", "订单状态已更新为【已送达】")
-        self.refresh_table()
-
     # ========== 搜索 ==========
     def open_search_window(self):
         win = ctk.CTkToplevel(self)
-        win.geometry("520x700")
         win.title("搜索订单")
+        win.geometry("520x650")
         win.grab_set()
 
-        scroll = ctk.CTkScrollableFrame(win, width=500, height=650, fg_color="#FFFFFF")
+        scroll = ctk.CTkScrollableFrame(win, width=500, height=590, fg_color="#FFFFFF")
         scroll.pack(fill="both", expand=True, padx=10, pady=10)
 
         search_fields = [
             ("订单号", "order_no", "text"),
+            ("订单状态", "order_status", "text"),
+            ("客户ID", "customer_id", "text"),
             ("客户名称", "customer_name", "text"),
             ("地址", "address", "text"),
             ("快递单号", "express_no", "text"),
-            ("订单状态", "order_status", "text"),
-            ("成本价", "cost_price", "range"),
+            ("明细", "detail", "text"),
             ("销售价", "sell_price", "range"),
-            ("明细(JSON)", "detail", "text"),
+            ("成本价", "cost_price", "range"),
             ("备注", "remark", "text"),
             ("创建时间", "create_time", "range"),
             ("更新时间", "update_time", "range")
@@ -437,98 +195,60 @@ class OrderPage(ctk.CTkFrame):
         inputs = {}
         for i, (label, key, ftype) in enumerate(search_fields):
             ctk.CTkLabel(scroll, text=label, font=("微软雅黑", 16)).grid(row=i, column=0, padx=8, pady=6, sticky="e")
-
-            if ftype == "range":
-                e1 = ctk.CTkEntry(scroll, width=110, placeholder_text="从")
-                e2 = ctk.CTkEntry(scroll, width=110, placeholder_text="到")
-                e1.grid(row=i, column=1, padx=(0, 5), pady=6, sticky="w")
-                e2.grid(row=i, column=2, padx=(0, 5), pady=6, sticky="w")
-                inputs[key] = {"type": "range", "widget": (e1, e2)}
-            else:
-                e = ctk.CTkEntry(scroll, width=260)
+            if ftype == "text":
+                e = ctk.CTkEntry(scroll, width=240)
                 e.grid(row=i, column=1, padx=8, pady=6, sticky="w", columnspan=2)
                 inputs[key] = {"type": "text", "widget": e}
+            else:
+                f1 = ctk.CTkEntry(scroll, width=110, placeholder_text="从")
+                f2 = ctk.CTkEntry(scroll, width=110, placeholder_text="到")
+                f1.grid(row=i, column=1, padx=(0, 5), pady=6, sticky="w")
+                f2.grid(row=i, column=2, padx=(0, 5), pady=6, sticky="w")
+                inputs[key] = {"type": "range", "widget": (f1, f2)}
 
         def confirm():
             filters = {}
-            for k, cfg in inputs.items():
-                if cfg["type"] == "range":
-                    e1, e2 = cfg["widget"]
-                    v1, v2 = e1.get().strip(), e2.get().strip()
-                    if v1 or v2:
-                        filters[k] = {"min": v1, "max": v2}
+            for key, cfg in inputs.items():
+                if cfg["type"] == "text":
+                    val = cfg["widget"].get().strip()
+                    if val:
+                        filters[key] = val
                 else:
-                    v = cfg["widget"].get().strip()
-                    if v:
-                        filters[k] = v
+                    f1, f2 = cfg["widget"]
+                    v1, v2 = f1.get().strip(), f2.get().strip()
+                    if v1 or v2:
+                        filters[key] = {"min": v1, "max": v2}
             self.search_filters = filters
             self.current_page = 1
             win.destroy()
             self.refresh_table()
 
         ctk.CTkButton(win, text="确定", width=120, fg_color="#2B6CB0", command=confirm).pack(pady=10)
-    # ========== 查询刷新 ==========
-    def refresh_table(self):
-        for row in self.tree.get_children():
-            self.tree.delete(row)
 
-        sql = 'SELECT id, order_no, order_status, customer_name, cost_price, sell_price, detail, remark, update_time FROM "order"'
-        params, where = [], []
-
-        for k, v in self.search_filters.items():
-            if isinstance(v, dict):
-                if v.get("min") and v.get("max"):
-                    where.append(f"{k} BETWEEN ? AND ?")
-                    params.extend([v["min"], v["max"]])
-                elif v.get("min"):
-                    where.append(f"{k} >= ?")
-                    params.append(v["min"])
-                elif v.get("max"):
-                    where.append(f"{k} <= ?")
-                    params.append(v["max"])
-            elif v:
-                where.append(f"{k} LIKE ?")
-                params.append(f"%{v}%")
-
-        if where:
-            sql += " WHERE " + " AND ".join(where)
-
-        self.cursor.execute(f"SELECT COUNT(*) FROM ({sql})", params)
-        total = self.cursor.fetchone()[0]
-        self.total_pages = max(1, math.ceil(total / PAGE_SIZE))
-        offset = (self.current_page - 1) * PAGE_SIZE
-        self.cursor.execute(sql + " ORDER BY id DESC LIMIT ? OFFSET ?", (*params, PAGE_SIZE, offset))
-
-        for r in self.cursor.fetchall():
-            try:
-                details = json.loads(r[6]) if r[6] else []
-                detail_text = "; ".join([f"{d['product_code']}×{d['qty']} 成:{d['cost']} 售:{d['sell']}" for d in details])
-            except Exception:
-                detail_text = r[6]
-            self.tree.insert("", "end", values=("☐",) + tuple(list(r[:6]) + [detail_text, r[7], r[8]]))
-
-        self.page_label.configure(text=f"第 {self.current_page}/{self.total_pages} 页")
-        self.total_label.configure(text=f"共 {total} 条")
-
-    def reset_filters(self):
-        self.search_filters.clear()
-        self.current_page = 1
-        self.refresh_table()
-
-    def toggle_select(self, e):
-        iid = self.tree.identify_row(e.y)
-        if not iid:
+    # ========== 勾选/复制 ==========
+    def toggle_select(self, event):
+        item_id = self.tree.identify_row(event.y)
+        col = self.tree.identify_column(event.x)
+        if not item_id:
             return
-        vals = list(self.tree.item(iid, "values"))
-        rid = vals[1]
+        vals = list(self.tree.item(item_id, "values"))
+        oid = vals[2]  # id 在第3列（索引2）
+
+        if col == "#2":  # 复制列
+            copied = "\n".join(f"{h}: {v}" for h, v in zip(self.tree["columns"][2:], vals[2:]))
+            pyperclip.copy(copied)
+            messagebox.showinfo("复制成功", "该行数据已复制到剪贴板。")
+            return
+
         if vals[0] == "☐":
             vals[0] = "☑"
-            self.selected_items.add(rid)
+            self.selected_items.add(oid)
         else:
             vals[0] = "☐"
-            self.selected_items.discard(rid)
-        self.tree.item(iid, values=vals)
+            self.selected_items.discard(oid)
+        self.tree.item(item_id, values=vals)
 
+    # ========== 分页 ==========
     def prev_page(self):
         if self.current_page > 1:
             self.current_page -= 1
@@ -539,359 +259,500 @@ class OrderPage(ctk.CTkFrame):
             self.current_page += 1
             self.refresh_table()
 
-    # ========== 新增 / 编辑 ==========
+    # ========== CRUD ==========
     def add_order(self):
         self._open_edit_window("add")
 
     def edit_order(self):
         if len(self.selected_items) != 1:
-            messagebox.showwarning("提示", "请选择一条记录编辑")
+            messagebox.showwarning("提示", "请勾选一条订单进行编辑。")
             return
-        self._open_edit_window("edit", list(self.selected_items)[0])
+        oid = list(self.selected_items)[0]
+        self._open_edit_window("edit", oid)
 
+    def delete_order(self):
+        if not self.selected_items:
+            messagebox.showwarning("提示", "请至少勾选一条记录删除。")
+            return
+        
+        # 检查是否都是草稿状态
+        for oid in self.selected_items:
+            self.cursor.execute('SELECT order_status FROM "order" WHERE id=?', (oid,))
+            status = self.cursor.fetchone()
+            if status and status[0] != "草稿":
+                messagebox.showerror("错误", f"订单 ID {oid} 状态为 {status[0]}，只能删除草稿状态的订单！")
+                return
+        
+        if messagebox.askyesno("确认删除", f"确定删除选中的 {len(self.selected_items)} 条草稿订单？"):
+            for oid in self.selected_items:
+                self.cursor.execute('DELETE FROM "order" WHERE id=?', (oid,))
+            self.conn.commit()
+            self.selected_items.clear()
+            self.refresh_table()
+            messagebox.showinfo("成功", "已删除选中的订单！")
+
+    # ========== 完成订单 ==========
+    def complete_order(self):
+        if len(self.selected_items) != 1:
+            messagebox.showwarning("提示", "请勾选一条订单进行完成操作。")
+            return
+        
+        oid = list(self.selected_items)[0]
+        
+        try:
+            self.cursor.execute('BEGIN')
+            
+            # 查询订单信息
+            self.cursor.execute('SELECT order_status, detail FROM "order" WHERE id=?', (oid,))
+            order_info = self.cursor.fetchone()
+            
+            if not order_info:
+                raise Exception("订单不存在！")
+            
+            status, detail_json = order_info
+            
+            if status != "草稿":
+                raise Exception(f"只能完成草稿状态的订单，当前状态为：{status}")
+            
+            # 解析明细
+            details = json.loads(detail_json) if detail_json else []
+            
+            if not details:
+                raise Exception("订单明细为空，无法完成！")
+            
+            # 检查库存并扣减
+            for item in details:
+                product_code = item.get('product_code', '')
+                qty = float(item.get('qty', 0))
+                
+                if not product_code or qty <= 0:
+                    continue
+                
+                # 查询当前库存
+                self.cursor.execute(
+                    "SELECT stock_qty FROM inventory WHERE product_code=?",
+                    (product_code,)
+                )
+                stock_info = self.cursor.fetchone()
+                
+                if not stock_info:
+                    raise Exception(f"产品 {product_code} 不存在于库存中！")
+                
+                current_stock = float(stock_info[0])
+                
+                if current_stock < qty:
+                    raise Exception(
+                        f"产品 {product_code} 库存不足！\n"
+                        f"当前库存：{current_stock}\n"
+                        f"需要数量：{qty}\n"
+                        f"缺少：{qty - current_stock}"
+                    )
+
+            # 扣减库存
+                self.cursor.execute(
+                    "UPDATE inventory SET stock_qty = stock_qty - ? WHERE product_code=?",
+                    (qty, product_code)
+                )
+            
+            # 更新订单状态
+            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.cursor.execute(
+                'UPDATE "order" SET order_status=?, update_time=? WHERE id=?',
+                ("已完成", now, oid)
+            )
+            
+            self.conn.commit()
+            messagebox.showinfo("成功", "订单已完成，库存已扣减！")
+            self.refresh_table()
+            
+        except Exception as e:
+            self.conn.rollback()
+            messagebox.showerror("错误", str(e))
+
+    # ========== 送达订单 ==========
+    def deliver_order(self):
+        if len(self.selected_items) != 1:
+            messagebox.showwarning("提示", "请勾选一条订单进行送达操作。")
+            return
+        
+        oid = list(self.selected_items)[0]
+        
+        # 查询订单状态
+        self.cursor.execute('SELECT order_status FROM "order" WHERE id=?', (oid,))
+        status_info = self.cursor.fetchone()
+        
+        if not status_info:
+            messagebox.showerror("错误", "订单不存在！")
+            return
+        
+        status = status_info[0]
+        
+        if status != "已完成":
+            messagebox.showerror("错误", f"只能送达已完成的订单，当前状态为：{status}")
+            return
+        
+        # 更新状态为已送达
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.cursor.execute(
+            'UPDATE "order" SET order_status=?, update_time=? WHERE id=?',
+            ("已送达", now, oid)
+        )
+        self.conn.commit()
+        messagebox.showinfo("成功", "订单已送达！")
+        self.refresh_table()
+
+    # ========== 新增/编辑 ==========
     def _open_edit_window(self, mode, oid=None):
         win = ctk.CTkToplevel(self)
-        win.geometry("820x900")
-        win.title("新增订单" if mode == "add" else "编辑订单")
+        win.geometry("900x750")
         win.grab_set()
 
-        # ===== 查询客户与库存信息 =====
-        self.cursor.execute("SELECT id, customer_name FROM customer")
+        if mode == "add":
+            win.title("新增订单")
+            data = {
+                "order_no": self._generate_order_no(),
+                "order_status": "草稿",
+                "customer_id": "",
+                "customer_name": "",
+                "address": "",
+                "express_no": "",
+                "detail": "[]",
+                "sell_price": 0,
+                "cost_price": 0,
+                "remark": ""
+            }
+        else:
+            win.title("编辑订单")
+            self.cursor.execute('SELECT * FROM "order" WHERE id=?', (oid,))
+            r = self.cursor.fetchone()
+            if not r:
+                messagebox.showerror("错误", "未找到该订单记录")
+                return
+            
+            # 检查是否可编辑
+            if r[2] != "草稿":  # order_status
+                messagebox.showerror("错误", f"订单状态为 {r[2]}，只能编辑草稿状态的订单！")
+                return
+            
+            data = {
+                "id": r[0],
+                "order_no": r[1],
+                "order_status": r[2],
+                "customer_id": r[3] or "",
+                "customer_name": r[4] or "",
+                "address": r[5] or "",
+                "express_no": r[6] or "",
+                "detail": r[9] or "[]",
+                "sell_price": r[7] or 0,
+                "cost_price": r[8] or 0,
+                "remark": r[10] or ""
+            }
+
+        # 查询客户列表
+        self.cursor.execute("SELECT id, customer_name FROM customer WHERE customer_status='启用'")
         customers = self.cursor.fetchall()
+        customer_options = [f"{c[0]} - {c[1]}" for c in customers]
+
+        # 查询库存产品列表
         self.cursor.execute("SELECT product_code, cost_price, sell_price FROM inventory WHERE stock_status='启用'")
-        inv_data = self.cursor.fetchall()
-        inv_map = {i[0]: {"cost": i[1], "sell": i[2]} for i in inv_data}
-        products = list(inv_map.keys())
+        inventory_data = self.cursor.fetchall()
+        inventory_map = {item[0]: {"cost": item[1], "sell": item[2]} for item in inventory_data}
+        product_codes = list(inventory_map.keys())
 
-        # ===== 若是编辑，取出原始数据 =====
-        order_data = {}
-        if mode == "edit":
-            self.cursor.execute('SELECT * FROM "order" WHERE id=?', (oid,))
-            r = self.cursor.fetchone()
-            if not r:
-                messagebox.showerror("错误", "订单不存在")
-                return
-            cols = [d[0] for d in self.cursor.description]
-            order_data = dict(zip(cols, r))
-        # ===== 顶部输入区域 =====
-        top = ctk.CTkFrame(win, fg_color="#FFFFFF")
-        top.pack(fill="x", padx=10, pady=10)
+        # ===== 顶部表单区域 =====
+        form_frame = ctk.CTkScrollableFrame(win, width=860, height=200, fg_color="#FFFFFF")
+        form_frame.pack(fill="x", padx=10, pady=10)
+
         entries = {}
 
-        def gen_no():
-            today = datetime.datetime.now().strftime("%Y%m%d")
-            prefix = f"ORD{today}"
-            self.cursor.execute('SELECT COUNT(*) FROM "order" WHERE order_no LIKE ?', (f"{prefix}%",))
-            count = self.cursor.fetchone()[0] + 1
-            return f"{prefix}{count:03d}"
+        # 订单号（只读）
+        ctk.CTkLabel(form_frame, text="订单号", font=("微软雅黑", 16)).grid(row=0, column=0, padx=10, pady=6, sticky="e")
+        order_no_entry = ctk.CTkEntry(form_frame, width=240)
+        order_no_entry.insert(0, data["order_no"])
+        order_no_entry.configure(state="readonly")
+        order_no_entry.grid(row=0, column=1, padx=10, pady=6, sticky="w")
+        entries["order_no"] = order_no_entry
 
-        fields = [
-            ("订单号", "order_no"),
-            ("客户", "customer_id"),
-            ("地址", "address"),
-            ("快递单号", "express_no"),
-            ("备注", "remark")
-        ]
-
-        for i, (lbl, key) in enumerate(fields):
-            ctk.CTkLabel(top, text=lbl, font=("微软雅黑", 16)).grid(row=i, column=0, padx=10, pady=6, sticky="e")
-            if key == "order_no":
-                e = ctk.CTkEntry(top, width=260)
-                e.insert(0, gen_no() if mode == "add" else order_data.get("order_no", ""))
-                e.configure(state="readonly")
-                entries[key] = e
-            elif key == "customer_id":
-                names = [f"{c[0]} - {c[1]}" for c in customers]
-                combo = ctk.CTkComboBox(top, values=names, width=260)
-                if mode == "edit" and order_data.get("customer_id"):
-                    matched = [n for n in names if str(order_data["customer_id"]) in n]
-                    combo.set(matched[0] if matched else names[0])
-                else:
-                    combo.set(names[0] if names else "")
-                entries[key] = combo
-                combo.grid(row=i, column=1, padx=10, pady=6, sticky="w")
-                continue
+        # 客户选择
+        ctk.CTkLabel(form_frame, text="客户*", font=("微软雅黑", 16)).grid(row=1, column=0, padx=10, pady=6, sticky="e")
+        customer_combo = ctk.CTkComboBox(form_frame, values=customer_options if customer_options else ["无可用客户"], width=240)
+        if mode == "edit" and data["customer_id"]:
+            # 查找匹配的客户选项
+            match = [opt for opt in customer_options if opt.startswith(f"{data['customer_id']} -")]
+            if match:
+                customer_combo.set(match[0])
             else:
-                e = ctk.CTkEntry(top, width=260)
-                e.insert(0, str(order_data.get(key, "")))
-                entries[key] = e
-            e.grid(row=i, column=1, padx=10, pady=6, sticky="w")
+                customer_combo.set(f"{data['customer_id']} - {data['customer_name']}")
+        elif customer_options:
+            customer_combo.set(customer_options[0])
+        customer_combo.grid(row=1, column=1, padx=10, pady=6, sticky="w")
+        entries["customer"] = customer_combo
+
+        # 地址
+        ctk.CTkLabel(form_frame, text="地址", font=("微软雅黑", 16)).grid(row=2, column=0, padx=10, pady=6, sticky="e")
+        address_entry = ctk.CTkEntry(form_frame, width=240)
+        address_entry.insert(0, data["address"])
+        address_entry.grid(row=2, column=1, padx=10, pady=6, sticky="w")
+        entries["address"] = address_entry
+
+        # 快递单号
+        ctk.CTkLabel(form_frame, text="快递单号", font=("微软雅黑", 16)).grid(row=3, column=0, padx=10, pady=6, sticky="e")
+        express_entry = ctk.CTkEntry(form_frame, width=240)
+        express_entry.insert(0, data["express_no"])
+        express_entry.grid(row=3, column=1, padx=10, pady=6, sticky="w")
+        entries["express_no"] = express_entry
+
+        # 备注
+        ctk.CTkLabel(form_frame, text="备注", font=("微软雅黑", 16)).grid(row=4, column=0, padx=10, pady=6, sticky="e")
+        remark_entry = ctk.CTkEntry(form_frame, width=240)
+        remark_entry.insert(0, data["remark"])
+        remark_entry.grid(row=4, column=1, padx=10, pady=6, sticky="w")
+        entries["remark"] = remark_entry
 
         # ===== 明细区域 =====
-        detail_frame = ctk.CTkScrollableFrame(win, width=780, height=320, fg_color="#F7F9FC")
-        detail_frame.pack(fill="both", padx=10, pady=10)
+        ctk.CTkLabel(win, text="订单明细", font=("微软雅黑", 18, "bold")).pack(pady=(5, 0))
+        
+        detail_frame = ctk.CTkScrollableFrame(win, width=860, height=250, fg_color="#F7F9FC")
+        detail_frame.pack(fill="both", padx=10, pady=10, expand=True)
+
         detail_rows = []
 
-        def calc():
-            """自动计算订单总价"""
-            cost_sum = sell_sum = 0
-            for _, cb, qty, cost, sell in detail_rows:
+        # ===== 价格汇总区域 =====
+        price_frame = ctk.CTkFrame(win, fg_color="#FFFFFF")
+        price_frame.pack(fill="x", padx=10, pady=5)
+
+        ctk.CTkLabel(price_frame, text="订单成本价格：", font=("微软雅黑", 16, "bold")).pack(side="left", padx=10)
+        cost_price_entry = ctk.CTkEntry(price_frame, width=150, font=("微软雅黑", 16))
+        cost_price_entry.insert(0, str(data["cost_price"]))
+        cost_price_entry.pack(side="left", padx=5)
+
+        ctk.CTkLabel(price_frame, text="订单销售价格：", font=("微软雅黑", 16, "bold")).pack(side="left", padx=10)
+        sell_price_entry = ctk.CTkEntry(price_frame, width=150, font=("微软雅黑", 16))
+        sell_price_entry.insert(0, str(data["sell_price"]))
+        sell_price_entry.pack(side="left", padx=5)
+
+        entries["cost_price"] = cost_price_entry
+        entries["sell_price"] = sell_price_entry
+
+        # 自动计算价格
+        def calculate_prices():
+            total_cost = 0
+            total_sell = 0
+            for row_data in detail_rows:
                 try:
-                    qv = float(qty.get() or 0)
-                    cv = float(cost.get() or 0)
-                    sv = float(sell.get() or 0)
-                    cost_sum += qv * cv
-                    sell_sum += qv * sv
-                except ValueError:
+                    qty = float(row_data["qty"].get() or 0)
+                    cost = float(row_data["cost"].get() or 0)
+                    sell = float(row_data["sell"].get() or 0)
+                    total_cost += qty * cost
+                    total_sell += qty * sell
+                except:
                     pass
-            cost_entry.delete(0, "end")
-            sell_entry.delete(0, "end")
-            cost_entry.insert(0, f"{cost_sum:.2f}")
-            sell_entry.insert(0, f"{sell_sum:.2f}")
+            
+            cost_price_entry.delete(0, "end")
+            cost_price_entry.insert(0, f"{total_cost:.2f}")
+            sell_price_entry.delete(0, "end")
+            sell_price_entry.insert(0, f"{total_sell:.2f}")
 
-        def add_row(d=None):
-            """添加一行产品明细"""
-            fr = ctk.CTkFrame(detail_frame, fg_color="#FFFFFF")
-            fr.pack(fill="x", padx=5, pady=5)
+        # 添加明细行
+        def add_detail_row(detail_data=None):
+            row_frame = ctk.CTkFrame(detail_frame, fg_color="#FFFFFF")
+            row_frame.pack(fill="x", padx=5, pady=5)
 
-            combo = ctk.CTkComboBox(fr, values=products, width=160)
-            qty = ctk.CTkEntry(fr, width=70, placeholder_text="数量")
-            cost = ctk.CTkEntry(fr, width=100, placeholder_text="成本价")
-            sell = ctk.CTkEntry(fr, width=100, placeholder_text="销售价")
-            rm_btn = ctk.CTkButton(fr, text="🗑", width=40, fg_color="#E53E3E", command=lambda: rm_row(fr))
+            # 产品编码下拉
+            ctk.CTkLabel(row_frame, text="产品编码:", font=("微软雅黑", 14)).pack(side="left", padx=5)
+            product_combo = ctk.CTkComboBox(row_frame, values=product_codes if product_codes else ["无可用产品"], width=150)
+            if detail_data:
+                product_combo.set(detail_data.get("product_code", ""))
+            elif product_codes:
+                product_combo.set(product_codes[0])
+            product_combo.pack(side="left", padx=5)
 
-            combo.pack(side="left", padx=5)
-            qty.pack(side="left", padx=5)
-            cost.pack(side="left", padx=5)
-            sell.pack(side="left", padx=5)
-            rm_btn.pack(side="right", padx=5)
-            detail_rows.append((fr, combo, qty, cost, sell))
+            # 使用数量
+            ctk.CTkLabel(row_frame, text="数量:", font=("微软雅黑", 14)).pack(side="left", padx=5)
+            qty_entry = ctk.CTkEntry(row_frame, width=80, placeholder_text="数量")
+            if detail_data:
+                qty_entry.insert(0, str(detail_data.get("qty", "")))
+            qty_entry.pack(side="left", padx=5)
 
-            # 自动带出成本价/销售价
-            def fill(_):
-                p = combo.get()
-                if p in inv_map:
-                    cost.delete(0, "end")
-                    sell.delete(0, "end")
-                    cost.insert(0, str(inv_map[p]["cost"]))
-                    sell.insert(0, str(inv_map[p]["sell"]))
-                calc()
+            # 成本价
+            ctk.CTkLabel(row_frame, text="成本:", font=("微软雅黑", 14)).pack(side="left", padx=5)
+            cost_entry = ctk.CTkEntry(row_frame, width=100, placeholder_text="成本价")
+            if detail_data:
+                cost_entry.insert(0, str(detail_data.get("cost", "")))
+            cost_entry.pack(side="left", padx=5)
 
-            combo.bind("<<ComboboxSelected>>", fill)
-            qty.bind("<KeyRelease>", lambda e: calc())
-            cost.bind("<KeyRelease>", lambda e: calc())
-            sell.bind("<KeyRelease>", lambda e: calc())
+            # 销售价
+            ctk.CTkLabel(row_frame, text="售价:", font=("微软雅黑", 14)).pack(side="left", padx=5)
+            sell_entry = ctk.CTkEntry(row_frame, width=100, placeholder_text="销售价")
+            if detail_data:
+                sell_entry.insert(0, str(detail_data.get("sell", "")))
+            sell_entry.pack(side="left", padx=5)
 
-            if d:
-                combo.set(d["product_code"])
-                qty.insert(0, str(d["qty"]))
-                cost.insert(0, str(d["cost"]))
-                sell.insert(0, str(d["sell"]))
-                calc()
+            # 删除按钮
+            def remove_row():
+                row_frame.destroy()
+                detail_rows.remove(row_data)
+                calculate_prices()
 
-        def rm_row(fr):
-            for i, (f, *_rest) in enumerate(detail_rows):
-                if f == fr:
-                    f.destroy()
-                    detail_rows.pop(i)
-                    break
-            calc()
+            remove_btn = ctk.CTkButton(row_frame, text="🗑", width=40, fg_color="#E53E3E", command=remove_row)
+            remove_btn.pack(side="right", padx=5)
 
-        if mode == "edit" and order_data.get("detail"):
-            for d in json.loads(order_data["detail"]):
-                add_row(d)
-        else:
-            add_row()
-        ctk.CTkButton(win, text="➕ 添加明细", width=140, fg_color="#2B6CB0", command=lambda: add_row()).pack(pady=5)
+            row_data = {
+                "frame": row_frame,
+                "product": product_combo,
+                "qty": qty_entry,
+                "cost": cost_entry,
+                "sell": sell_entry
+            }
+            detail_rows.append(row_data)
 
-        # ===== 汇总区域（支持手动修改） =====
-        total_frame = ctk.CTkFrame(win, fg_color="#FFFFFF")
-        total_frame.pack(fill="x", padx=10, pady=10)
-        ctk.CTkLabel(total_frame, text="订单成本价：", font=("微软雅黑", 16)).pack(side="left")
-        cost_entry = ctk.CTkEntry(total_frame, width=120)
-        cost_entry.pack(side="left", padx=5)
-        ctk.CTkLabel(total_frame, text="销售价：", font=("微软雅黑", 16)).pack(side="left", padx=10)
-        sell_entry = ctk.CTkEntry(total_frame, width=120)
-        sell_entry.pack(side="left", padx=5)
+            # 产品选择时自动填充价格
+            def on_product_select(event):
+                selected = product_combo.get()
+                if selected in inventory_map:
+                    cost_entry.delete(0, "end")
+                    cost_entry.insert(0, str(inventory_map[selected]["cost"]))
+                    sell_entry.delete(0, "end")
+                    sell_entry.insert(0, str(inventory_map[selected]["sell"]))
+                    calculate_prices()
 
-        # 若编辑模式，回填总价
-        if mode == "edit":
-            cost_entry.insert(0, str(order_data.get("cost_price", 0)))
-            sell_entry.insert(0, str(order_data.get("sell_price", 0)))
-        # ===== 保存逻辑 =====
+            product_combo.bind("<<ComboboxSelected>>", on_product_select)
+            qty_entry.bind("<KeyRelease>", lambda e: calculate_prices())
+            cost_entry.bind("<KeyRelease>", lambda e: calculate_prices())
+            sell_entry.bind("<KeyRelease>", lambda e: calculate_prices())
+
+            # 如果没有传入数据且有库存，自动填充第一个产品的价格
+            if not detail_data and product_codes and product_combo.get() in inventory_map:
+                cost_entry.insert(0, str(inventory_map[product_combo.get()]["cost"]))
+                sell_entry.insert(0, str(inventory_map[product_combo.get()]["sell"]))
+
+        # 加载现有明细
+        try:
+            existing_details = json.loads(data["detail"])
+            if existing_details:
+                for detail in existing_details:
+                    add_detail_row(detail)
+            else:
+                add_detail_row()  # 至少添加一行
+        except:
+            add_detail_row()  # 至少添加一行
+
+        # 初始计算价格
+        calculate_prices()
+
+        # 添加明细按钮
+        add_detail_btn = ctk.CTkButton(win, text="➕ 添加明细行", width=150, fg_color="#2B6CB0", 
+                                       command=lambda: add_detail_row())
+        add_detail_btn.pack(pady=5)
+
+        # ===== 保存按钮 =====
         def confirm():
-            # 客户ID与名称分拆
-            cid_full = entries["customer_id"].get()
-            cid = cid_full.split(" - ")[0] if " - " in cid_full else cid_full
-            cname = cid_full.split(" - ")[1] if " - " in cid_full else ""
+            # 获取客户信息
+            customer_str = entries["customer"].get()
+            if not customer_str or customer_str == "无可用客户":
+                messagebox.showwarning("提示", "请选择客户")
+                return
+            
+            # 解析客户ID和名称
+            if " - " in customer_str:
+                customer_id, customer_name = customer_str.split(" - ", 1)
+            else:
+                messagebox.showwarning("提示", "客户格式错误")
+                return
 
-            # 明细序列化
+            # 收集明细数据
             details = []
-            for _, combo, qty, cost, sell in detail_rows:
-                if not combo.get():
-                    continue
-                details.append({
-                    "product_code": combo.get(),
-                    "qty": float(qty.get() or 0),
-                    "cost": float(cost.get() or 0),
-                    "sell": float(sell.get() or 0)
-                })
+            for row in detail_rows:
+                product_code = row["product"].get()
+                qty_str = row["qty"].get().strip()
+                cost_str = row["cost"].get().strip()
+                sell_str = row["sell"].get().strip()
 
-            cost_total = float(cost_entry.get() or 0)
-            sell_total = float(sell_entry.get() or 0)
+                if not product_code or product_code == "无可用产品":
+                    continue
+
+                try:
+                    qty = float(qty_str) if qty_str else 0
+                    cost = float(cost_str) if cost_str else 0
+                    sell = float(sell_str) if sell_str else 0
+                    
+                    if qty > 0:  # 只添加数量大于0的明细
+                        details.append({
+                            "product_code": product_code,
+                            "qty": qty,
+                            "cost": cost,
+                            "sell": sell
+                        })
+                except ValueError:
+                    messagebox.showwarning("提示", f"产品 {product_code} 的数量、成本或售价格式不正确")
+                    return
+
+            if not details:
+                messagebox.showwarning("提示", "请至少添加一条有效的订单明细")
+                return
+
+            detail_json = json.dumps(details, ensure_ascii=False)
+            
+            # 获取价格
+            try:
+                cost_price = float(entries["cost_price"].get() or 0)
+                sell_price = float(entries["sell_price"].get() or 0)
+            except ValueError:
+                messagebox.showwarning("提示", "价格格式不正确")
+                return
+
             now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             if mode == "add":
                 self.cursor.execute('''
-                    INSERT INTO "order" (order_no, order_status, customer_id, customer_name, address, express_no,
-                                         sell_price, cost_price, detail, remark, create_time, update_time)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (entries["order_no"].get(), "草稿", cid, cname,
-                      entries["address"].get(), entries["express_no"].get(),
-                      sell_total, cost_total, json.dumps(details, ensure_ascii=False),
-                      entries["remark"].get(), now, now))
+                    INSERT INTO "order" (
+                        order_no, order_status, customer_id, customer_name, address, express_no,
+                        sell_price, cost_price, detail, remark, create_time, update_time
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    entries["order_no"].get(),
+                    "草稿",
+                    customer_id,
+                    customer_name,
+                    entries["address"].get(),
+                    entries["express_no"].get(),
+                    sell_price,
+                    cost_price,
+                    detail_json,
+                    entries["remark"].get(),
+                    now,
+                    now
+                ))
             else:
-                # 编辑不允许修改非草稿订单
-                self.cursor.execute('SELECT order_status FROM "order" WHERE id=?', (oid,))
-                st = self.cursor.fetchone()
-                if st and st[0] != "草稿":
-                    messagebox.showwarning("警告", "已完成或已送达的订单不可修改！")
-                    win.destroy()
-                    return
                 self.cursor.execute('''
-                    UPDATE "order"
-                    SET customer_id=?, customer_name=?, address=?, express_no=?, sell_price=?, cost_price=?, 
-                        detail=?, remark=?, update_time=?
+                    UPDATE "order" SET
+                        customer_id=?, customer_name=?, address=?, express_no=?,
+                        sell_price=?, cost_price=?, detail=?, remark=?, update_time=?
                     WHERE id=?
-                ''', (cid, cname, entries["address"].get(), entries["express_no"].get(),
-                      sell_total, cost_total, json.dumps(details, ensure_ascii=False),
-                      entries["remark"].get(), now, oid))
+                ''', (
+                    customer_id,
+                    customer_name,
+                    entries["address"].get(),
+                    entries["express_no"].get(),
+                    sell_price,
+                    cost_price,
+                    detail_json,
+                    entries["remark"].get(),
+                    now,
+                    oid
+                ))
 
             self.conn.commit()
             win.destroy()
             self.refresh_table()
             messagebox.showinfo("成功", "订单已保存！")
 
-        ctk.CTkButton(win, text="💾 保存订单", fg_color="#2B6CB0", width=160, command=confirm).pack(pady=15)
+        ctk.CTkButton(win, text="💾 保存", fg_color="#2B6CB0", width=150, command=confirm).pack(pady=10)
 
-    # ========== 删除 ==========
-    def delete_order(self):
-        if not self.selected_items:
-            messagebox.showwarning("提示", "请选择要删除的订单")
-            return
-        for oid in self.selected_items:
-            self.cursor.execute('SELECT order_status FROM "order" WHERE id=?', (oid,))
-            st = self.cursor.fetchone()
-            if not st or st[0] != "草稿":
-                messagebox.showerror("错误", f"订单 {oid} 不是草稿，无法删除")
-                return
-        if messagebox.askyesno("确认", "确定删除选中的草稿订单？"):
-            for oid in self.selected_items:
-                self.cursor.execute('DELETE FROM "order" WHERE id=?', (oid,))
-            self.conn.commit()
-            self.selected_items.clear()
-            self.refresh_table()
-            messagebox.showinfo("成功", "已删除草稿订单！")
-
-    # ========== 完成 ==========
-    def complete_order(self):
-        if len(self.selected_items) != 1:
-            messagebox.showwarning("提示", "请选择一条订单进行完成操作")
-            return
-        oid = list(self.selected_items)[0]
-        c = self.conn.cursor()
-        try:
-            c.execute('BEGIN')
-            c.execute('SELECT order_status, detail FROM "order" WHERE id=?', (oid,))
-            row = c.fetchone()
-            if not row:
-                raise Exception("订单不存在")
-            status, detail = row
-            if status != "草稿":
-                raise Exception("只有草稿订单可以完成")
-
-            items = json.loads(detail or "[]")
-            # 校验库存
-            for d in items:
-                p, q = d["product_code"], float(d["qty"])
-                c.execute("SELECT stock_qty FROM inventory WHERE product_code=?", (p,))
-                r = c.fetchone()
-                if not r or r[0] < q:
-                    raise Exception(f"产品 {p} 库存不足（当前 {r[0] if r else 0}, 需要 {q}）")
-
-            # 扣减库存
-            for d in items:
-                c.execute("UPDATE inventory SET stock_qty = stock_qty - ? WHERE product_code=?", (d["qty"], d["product_code"]))
-
-            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            c.execute('UPDATE "order" SET order_status="已完成", update_time=? WHERE id=?', (now, oid))
-            c.execute("COMMIT")
-            messagebox.showinfo("成功", "订单已完成，库存已更新！")
-            self.refresh_table()
-        except Exception as e:
-            c.execute("ROLLBACK")
-            messagebox.showerror("错误", str(e))
-
-    # ========== 送达 ==========
-    def deliver_order(self):
-        if len(self.selected_items) != 1:
-            messagebox.showwarning("提示", "请选择一条已完成订单送达")
-            return
-        oid = list(self.selected_items)[0]
-        self.cursor.execute('SELECT order_status FROM "order" WHERE id=?', (oid,))
-        st = self.cursor.fetchone()
-        if not st or st[0] != "已完成":
-            messagebox.showerror("错误", "只有已完成订单可以送达")
-            return
-        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.cursor.execute('UPDATE "order" SET order_status="已送达", update_time=? WHERE id=?', (now, oid))
-        self.conn.commit()
-        messagebox.showinfo("成功", "订单状态已更新为【已送达】")
-        self.refresh_table()
-
-    # ========== 搜索 ==========
-    def open_search_window(self):
-        win = ctk.CTkToplevel(self)
-        win.geometry("520x700")
-        win.title("搜索订单")
-        win.grab_set()
-
-        scroll = ctk.CTkScrollableFrame(win, width=500, height=650, fg_color="#FFFFFF")
-        scroll.pack(fill="both", expand=True, padx=10, pady=10)
-
-        search_fields = [
-            ("订单号", "order_no", "text"),
-            ("客户名称", "customer_name", "text"),
-            ("地址", "address", "text"),
-            ("快递单号", "express_no", "text"),
-            ("订单状态", "order_status", "text"),
-            ("成本价", "cost_price", "range"),
-            ("销售价", "sell_price", "range"),
-            ("明细(JSON)", "detail", "text"),
-            ("备注", "remark", "text"),
-            ("创建时间", "create_time", "range"),
-            ("更新时间", "update_time", "range")
-        ]
-
-        inputs = {}
-        for i, (label, key, ftype) in enumerate(search_fields):
-            ctk.CTkLabel(scroll, text=label, font=("微软雅黑", 16)).grid(row=i, column=0, padx=8, pady=6, sticky="e")
-            if ftype == "range":
-                e1 = ctk.CTkEntry(scroll, width=110, placeholder_text="从")
-                e2 = ctk.CTkEntry(scroll, width=110, placeholder_text="到")
-                e1.grid(row=i, column=1, padx=(0, 5), pady=6, sticky="w")
-                e2.grid(row=i, column=2, padx=(0, 5), pady=6, sticky="w")
-                inputs[key] = {"type": "range", "widget": (e1, e2)}
-            else:
-                e = ctk.CTkEntry(scroll, width=260)
-                e.grid(row=i, column=1, padx=8, pady=6, sticky="w", columnspan=2)
-                inputs[key] = {"type": "text", "widget": e}
-
-        def confirm():
-            filters = {}
-            for k, cfg in inputs.items():
-                if cfg["type"] == "range":
-                    e1, e2 = cfg["widget"]
-                    v1, v2 = e1.get().strip(), e2.get().strip()
-                    if v1 or v2:
-                        filters[k] = {"min": v1, "max": v2}
-                else:
-                    v = cfg["widget"].get().strip()
-                    if v:
-                        filters[k] = v
-            self.search_filters = filters
-            self.current_page = 1
-            win.destroy()
-            self.refresh_table()
-
-        ctk.CTkButton(win, text="确定", width=120, fg_color="#2B6CB0", command=confirm).pack(pady=10)
+    # ========== 生成订单号 ==========
+    def _generate_order_no(self):
+        today = datetime.datetime.now().strftime("%Y%m%d")
+        prefix = f"ORD{today}"
+        self.cursor.execute('SELECT COUNT(*) FROM "order" WHERE order_no LIKE ?', (f"{prefix}%",))
+        count = self.cursor.fetchone()[0] + 1
+        return f"{prefix}{count:04d}"
