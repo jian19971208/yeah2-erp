@@ -92,5 +92,40 @@ def init_database():
     """)
 
     conn.commit()
+
+    # ===== 增量迁移：为已存在数据库补充缺失字段 =====
+    def get_table_columns(table_name: str) -> set:
+        cursor.execute(f'PRAGMA table_info("{table_name}")')
+        return {row[1] for row in cursor.fetchall()}
+
+    # order 表：新增最终售价 final_sell_price（REAL，可空）
+    try:
+        order_cols = get_table_columns("order")
+        if "final_sell_price" not in order_cols:
+            cursor.execute('ALTER TABLE "order" ADD COLUMN final_sell_price REAL')
+    except Exception as e:
+        print(f"⚠️  迁移 order.final_sell_price 失败：{e}")
+
+    # inventory 表：新增 stock_unit/weight_unit/supplier（TEXT，可空）
+    try:
+        inv_cols = get_table_columns("inventory")
+        if "stock_unit" not in inv_cols:
+            cursor.execute('ALTER TABLE inventory ADD COLUMN stock_unit TEXT')
+        if "weight_unit" not in inv_cols:
+            cursor.execute('ALTER TABLE inventory ADD COLUMN weight_unit TEXT')
+        if "supplier" not in inv_cols:
+            cursor.execute('ALTER TABLE inventory ADD COLUMN supplier TEXT')
+    except Exception as e:
+        print(f"⚠️  迁移 inventory 新增字段失败：{e}")
+
+    # customer 表：新增 wrist_unit（TEXT，可空）
+    try:
+        cust_cols = get_table_columns("customer")
+        if "wrist_unit" not in cust_cols:
+            cursor.execute('ALTER TABLE customer ADD COLUMN wrist_unit TEXT')
+    except Exception as e:
+        print(f"⚠️  迁移 customer.wrist_unit 失败：{e}")
+
+    conn.commit()
     conn.close()
     print(f"✅ 数据库已初始化：{db_path}")

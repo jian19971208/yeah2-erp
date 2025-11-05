@@ -1,6 +1,9 @@
 import datetime
 import math
 import sqlite3
+import os
+import json
+from pathlib import Path
 from tkinter import ttk, messagebox, Menu
 
 import customtkinter as ctk
@@ -48,6 +51,8 @@ class CustomerPage(ctk.CTkFrame):
                       command=self.reset_filters).pack(side="right", padx=5)
         ctk.CTkButton(toolbar, text="🔍 搜索", width=140, fg_color="#4A5568",
                       command=self.open_search_window).pack(side="right", padx=5)
+        ctk.CTkButton(toolbar, text="🧩 列顺序", width=120, fg_color="#805AD5",
+                      command=self.open_column_order_window).pack(side="right", padx=5)
 
         # ======== 搜索条件展示 ========
         self.filter_frame = ctk.CTkFrame(self, fg_color="#F7F9FC")
@@ -59,19 +64,64 @@ class CustomerPage(ctk.CTkFrame):
         table_frame = ctk.CTkFrame(self, fg_color="#FFFFFF")
         table_frame.pack(fill="both", expand=True, padx=10, pady=(5, 10))
 
-        self.columns = [
-            "select", "id", "customer_name", "customer_status", "customer_phone", "customer_address",
-            "customer_email", "wrist_circumference", "source_platform", "source_account",
+        self.columns_default = [
+            "id", "customer_name", "customer_status", "customer_phone", "customer_address",
+            "customer_email", "w wrist_circumference", "wrist_unit", "source_platform", "source_account",
             "wechat_account", "qq_account", "last_purchase_date", "total_purchase_amount",
             "last_return_date", "total_return_amount", "purchase_times", "return_times",
             "remark", "create_time", "update_time"
         ]
-        headers = [
-            "✔", "ID", "名称", "状态", "电话", "地址", "邮箱", "手围",
-            "来源平台", "来源账号", "微信", "QQ",
-            "最近购买", "总采购额", "最近退货", "总退货额",
-            "购买次数", "退货次数", "备注", "创建日期", "更新日期"
-        ]
+        # 修正错别名
+        self.columns_default[6] = "wrist_circumference"
+        headers_map = {
+            "id": "ID",
+            "customer_name": "名称",
+            "customer_status": "状态",
+            "customer_phone": "电话",
+            "customer_address": "地址",
+            "customer_email": "邮箱",
+            "wrist_circumference": "手围",
+            "wrist_unit": "手围单位",
+            "source_platform": "来源平台",
+            "source_account": "来源账号",
+            "wechat_account": "微信",
+            "qq_account": "QQ",
+            "last_purchase_date": "最近购买",
+            "total_purchase_amount": "总采购额",
+            "last_return_date": "最近退货",
+            "total_return_amount": "总退货额",
+            "purchase_times": "购买次数",
+            "return_times": "退货次数",
+            "remark": "备注",
+            "create_time": "创建日期",
+            "update_time": "更新日期"
+        }
+
+        # 读取自定义列顺序
+        def _load_settings():
+            try:
+                cfg_dir = Path(os.path.expanduser("~")) / "Yeah2Data"
+                cfg_file = cfg_dir / "settings.json"
+                if cfg_file.exists():
+                    with open(cfg_file, 'r', encoding='utf-8') as f:
+                        return json.load(f)
+            except:
+                pass
+            return {}
+
+        settings_all = _load_settings()
+        custom_order = settings_all.get("columns_order_customer")
+        if custom_order:
+            # 过滤非法列并补齐缺失列
+            ordered = [c for c in custom_order if c in self.columns_default]
+            for c in self.columns_default:
+                if c not in ordered:
+                    ordered.append(c)
+            self.columns = ["select"] + ordered
+        else:
+            self.columns = ["select"] + self.columns_default
+
+        headers = ["✔"] + [headers_map[c] for c in self.columns if c != "select"]
 
         self.tree = ttk.Treeview(table_frame, columns=self.columns, show="headings", height=10)
         for c, h in zip(self.columns, headers):
@@ -105,12 +155,102 @@ class CustomerPage(ctk.CTkFrame):
 
         self.refresh_table()
 
+    def open_column_order_window(self):
+        win = ctk.CTkToplevel(self)
+        win.title("自定义列顺序 - 客户")
+        win.geometry("680x520")
+        win.grab_set()
+
+        tip = ctk.CTkLabel(win, text="请为下列各列填写排序值（可为任意整数，数值越小排序越靠前）。保存后重启应用生效。", font=("微软雅黑", 14))
+        tip.pack(pady=8)
+
+        # 中文名映射
+        headers_map = {
+            "id": "ID", "customer_name": "名称", "customer_status": "状态", "customer_phone": "电话",
+            "customer_address": "地址", "customer_email": "邮箱", "wrist_circumference": "手围",
+            "wrist_unit": "手围单位", "source_platform": "来源平台", "source_account": "来源账号",
+            "wechat_account": "微信", "qq_account": "QQ", "last_purchase_date": "最近购买",
+            "total_purchase_amount": "总采购额", "last_return_date": "最近退货", "total_return_amount": "总退货额",
+            "purchase_times": "购买次数", "return_times": "退货次数", "remark": "备注",
+            "create_time": "创建日期", "update_time": "更新日期"
+        }
+
+        # 构建可滚动列表
+        scroll = ctk.CTkScrollableFrame(win, width=640, height=360, fg_color="#FFFFFF")
+        scroll.pack(fill="both", expand=True, padx=12, pady=6)
+
+        current_order = [c for c in self.columns if c != "select"]
+        editors = []  # (key, entry, default_index)
+
+        header_row = ctk.CTkFrame(scroll, fg_color="transparent")
+        header_row.grid(row=0, column=0, sticky="ew", padx=6, pady=(4, 8))
+        ctk.CTkLabel(header_row, text="列名", font=("微软雅黑", 15, "bold"), width=420, anchor="w").pack(side="left")
+        ctk.CTkLabel(header_row, text="顺序", font=("微软雅黑", 15, "bold"), width=80).pack(side="left", padx=10)
+
+        for i, key in enumerate(current_order, start=1):
+            row = ctk.CTkFrame(scroll, fg_color="transparent")
+            row.grid(row=i, column=0, sticky="ew", padx=6, pady=4)
+            ctk.CTkLabel(row, text=headers_map.get(key, key), font=("微软雅黑", 15), width=420, anchor="w").pack(side="left")
+            e = ctk.CTkEntry(row, width=80)
+            e.insert(0, str(i))
+            e.pack(side="left", padx=10)
+            editors.append((key, e, i))
+
+        def save_order():
+            # 收集排序数字，数字越小越靠前；非数字报错
+            order_list = []
+            for key, entry, original in editors:
+                val = entry.get().strip()
+                if val == "":
+                    messagebox.showwarning("提示", f"请为列“{headers_map.get(key, key)}”填写排序值。")
+                    return
+                try:
+                    num = int(val)
+                except Exception:
+                    messagebox.showwarning("提示", f"列“{headers_map.get(key, key)}”的排序值必须为整数。")
+                    return
+                order_list.append((num, original, key))  # original 作为稳定排序的次关键字
+            order_list.sort(key=lambda x: (x[0], x[1]))
+            ordered = [k for _, __, k in order_list]
+            # 补齐默认列（防御）
+            for c in self.columns_default:
+                if c not in ordered:
+                    ordered.append(c)
+
+            try:
+                cfg_dir = Path(os.path.expanduser("~")) / "Yeah2Data"
+                cfg_file = cfg_dir / "settings.json"
+                cfg_dir.mkdir(parents=True, exist_ok=True)
+                settings_all = {}
+                if cfg_file.exists():
+                    with open(cfg_file, 'r', encoding='utf-8') as f:
+                        try:
+                            settings_all = json.load(f)
+                        except:
+                            settings_all = {}
+                settings_all["columns_order_customer"] = ordered
+                with open(cfg_file, 'w', encoding='utf-8') as f:
+                    json.dump(settings_all, f, indent=4, ensure_ascii=False)
+                messagebox.showinfo("成功", "列顺序已保存。请重启应用以使设置生效。")
+                win.destroy()
+            except Exception as e:
+                messagebox.showerror("错误", str(e))
+
+        ctk.CTkButton(win, text="保存", width=140, fg_color="#2B6CB0", command=save_order).pack(pady=10)
+
     # ========== 刷新表格 ==========
     def refresh_table(self):
         for row in self.tree.get_children():
             self.tree.delete(row)
 
-        base_sql = "SELECT * FROM customer"
+        # 显式指定列顺序以便映射（含 wrist_unit，若不存在也已在启动迁移中新增）
+        base_sql = (
+            "SELECT id, customer_name, customer_status, customer_phone, customer_address, "
+            "customer_email, wrist_circumference, wrist_unit, source_platform, source_account, "
+            "wechat_account, qq_account, last_purchase_date, total_purchase_amount, last_return_date, "
+            "total_return_amount, purchase_times, return_times, remark, create_time, update_time "
+            "FROM customer"
+        )
         params, where = [], []
 
         for field, val in self.search_filters.items():
@@ -141,11 +281,13 @@ class CustomerPage(ctk.CTkFrame):
 
         self.cursor.execute(base_sql + " ORDER BY id DESC LIMIT ? OFFSET ?", (*params, PAGE_SIZE, offset))
         rows = self.cursor.fetchall()
+        # 获取列名以构建键值映射
+        col_names = [d[0] for d in self.cursor.description]
 
         for r in rows:
-            # 处理 None 值
-            display_values = tuple("" if val is None else str(val) for val in r)
-            self.tree.insert("", "end", values=("☐",) + display_values)
+            row_map = {k: ("" if v is None else str(v)) for k, v in zip(col_names, r)}
+            ordered_values = tuple(row_map.get(c, "") for c in self.columns if c != "select")
+            self.tree.insert("", "end", values=("☐",) + ordered_values)
 
         self.page_label.configure(text=f"第 {self.current_page} / {self.total_pages} 页")
         self.total_label.configure(text=f"共 {total} 条记录")
@@ -223,6 +365,39 @@ class CustomerPage(ctk.CTkFrame):
                 else:
                     f1, f2 = cfg["widget"]
                     v1, v2 = f1.get().strip(), f2.get().strip()
+                    # 强校验：数值/日期
+                    numeric_fields = {
+                        "total_purchase_amount", "total_return_amount", "purchase_times", "return_times"
+                    }
+                    date_fields = {
+                        "last_purchase_date", "last_return_date", "create_time", "update_time"
+                    }
+                    if key in numeric_fields:
+                        def _check_num(s):
+                            if not s:
+                                return True
+                            try:
+                                float(s)
+                                return True
+                            except:
+                                return False
+                        if (v1 and not _check_num(v1)) or (v2 and not _check_num(v2)):
+                            messagebox.showwarning("提示", f"{key} 请输入数字范围")
+                            return
+                    if key in date_fields:
+                        from datetime import datetime
+                        fmt = "%Y-%m-%d %H:%M:%S"
+                        def _check_dt(s):
+                            if not s:
+                                return True
+                            try:
+                                datetime.strptime(s, fmt)
+                                return True
+                            except:
+                                return False
+                        if (v1 and not _check_dt(v1)) or (v2 and not _check_dt(v2)):
+                            messagebox.showwarning("提示", f"{key} 日期格式需为 yyyy-MM-dd HH:mm:ss")
+                            return
                     if v1 or v2:
                         filters[key] = {"min": v1, "max": v2}
             self.search_filters = filters
@@ -415,6 +590,7 @@ class CustomerPage(ctk.CTkFrame):
             ("地址", "customer_address"),
             ("邮箱", "customer_email"),
             ("手围", "wrist_circumference"),
+            ("手围单位", "wrist_unit"),
             ("来源平台", "source_platform"),
             ("来源账号", "source_account"),
             ("微信号", "wechat_account"),
@@ -441,29 +617,36 @@ class CustomerPage(ctk.CTkFrame):
             if not vals["customer_name"]:
                 messagebox.showwarning("提示", "客户名称不能为空")
                 return
+            # 强校验：数字字段
+            try:
+                wc = vals.get("wrist_circumference", "").strip()
+                wrist_v = float(wc) if wc != "" else None
+            except Exception:
+                messagebox.showwarning("提示", "手围必须为数字")
+                return
             now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             if mode == "add":
                 self.cursor.execute("""
                     INSERT INTO customer (
                         customer_name, customer_status, customer_phone, customer_address, customer_email,
-                        wrist_circumference, source_platform, source_account, wechat_account, qq_account,
+                        wrist_circumference, wrist_unit, source_platform, source_account, wechat_account, qq_account,
                         remark, create_time, update_time
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     vals["customer_name"], vals["customer_status"], vals["customer_phone"], vals["customer_address"],
-                    vals["customer_email"], vals["wrist_circumference"], vals["source_platform"], vals["source_account"],
+                    vals["customer_email"], wrist_v, vals.get("wrist_unit", ""), vals["source_platform"], vals["source_account"],
                     vals["wechat_account"], vals["qq_account"], vals["remark"], now, now
                 ))
             else:
                 self.cursor.execute("""
                     UPDATE customer SET
                         customer_name=?, customer_status=?, customer_phone=?, customer_address=?, customer_email=?,
-                        wrist_circumference=?, source_platform=?, source_account=?, wechat_account=?, qq_account=?,
+                        wrist_circumference=?, wrist_unit=?, source_platform=?, source_account=?, wechat_account=?, qq_account=?,
                         remark=?, update_time=? WHERE id=?
                 """, (
                     vals["customer_name"], vals["customer_status"], vals["customer_phone"], vals["customer_address"],
-                    vals["customer_email"], vals["wrist_circumference"], vals["source_platform"], vals["source_account"],
+                    vals["customer_email"], wrist_v, vals.get("wrist_unit", ""), vals["source_platform"], vals["source_account"],
                     vals["wechat_account"], vals["qq_account"], vals["remark"], now, cid
                 ))
             self.conn.commit()

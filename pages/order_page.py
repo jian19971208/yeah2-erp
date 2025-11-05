@@ -51,21 +51,60 @@ class OrderPage(ctk.CTkFrame):
                       command=self.reset_filters).pack(side="right", padx=3)
         ctk.CTkButton(toolbar, text="🔍 搜索", width=100, fg_color="#4A5568",
                       command=self.open_search_window).pack(side="right", padx=3)
+        ctk.CTkButton(toolbar, text="🧩 列顺序", width=120, fg_color="#805AD5",
+                      command=self.open_column_order_window).pack(side="right", padx=3)
 
         # ======== 表格 ========
         table_frame = ctk.CTkFrame(self, fg_color="#FFFFFF")
         table_frame.pack(fill="both", expand=True, padx=10, pady=(5, 10))
 
-        self.columns = [
-            "select", "order_no", "order_status", "customer_id", "customer_name",
-            "address", "express_no", "detail", "sell_price", "cost_price",
+        self.columns_default = [
+            "order_no", "order_status", "customer_id", "customer_name",
+            "address", "express_no", "detail", "sell_price", "final_sell_price", "cost_price",
             "remark", "create_time", "update_time"
         ]
-        headers = [
-            "✔", "订单号", "状态", "客户ID", "客户名称",
-            "地址", "快递单号", "明细", "销售价", "成本价",
-            "备注", "创建日期", "更新日期"
-        ]
+        headers_map = {
+            "order_no": "订单号",
+            "order_status": "状态",
+            "customer_id": "客户ID",
+            "customer_name": "客户名称",
+            "address": "地址",
+            "express_no": "快递单号",
+            "detail": "明细",
+            "sell_price": "销售价",
+            "final_sell_price": "最终售价",
+            "cost_price": "成本价",
+            "remark": "备注",
+            "create_time": "创建日期",
+            "update_time": "更新日期"
+        }
+
+        # 读取自定义列顺序
+        def _load_settings():
+            try:
+                from pathlib import Path
+                import os, json
+                cfg_dir = Path(os.path.expanduser("~")) / "Yeah2Data"
+                cfg_file = cfg_dir / "settings.json"
+                if cfg_file.exists():
+                    with open(cfg_file, 'r', encoding='utf-8') as f:
+                        return json.load(f)
+            except:
+                pass
+            return {}
+
+        settings_all = _load_settings()
+        custom_order = settings_all.get("columns_order_order")
+        if custom_order:
+            ordered = [c for c in custom_order if c in self.columns_default]
+            for c in self.columns_default:
+                if c not in ordered:
+                    ordered.append(c)
+            self.columns = ["select"] + ordered
+        else:
+            self.columns = ["select"] + self.columns_default
+
+        headers = ["✔"] + [headers_map[c] for c in self.columns if c != "select"]
 
         self.tree = ttk.Treeview(table_frame, columns=self.columns, show="headings", height=10)
         for c, h in zip(self.columns, headers):
@@ -98,6 +137,84 @@ class OrderPage(ctk.CTkFrame):
         self.total_label.pack(side="right", padx=10)
 
         self.refresh_table()
+
+    def open_column_order_window(self):
+        win = ctk.CTkToplevel(self)
+        win.title("自定义列顺序 - 订单")
+        win.geometry("680x520")
+        win.grab_set()
+
+        tip = ctk.CTkLabel(win, text="请为下列各列填写排序值（可为任意整数，数值越小排序越靠前）。保存后重启应用生效。", font=("微软雅黑", 14))
+        tip.pack(pady=8)
+
+        headers_map = {
+            "order_no": "订单号", "order_status": "状态", "customer_id": "客户ID", "customer_name": "客户名称",
+            "address": "地址", "express_no": "快递单号", "detail": "明细", "sell_price": "销售价",
+            "final_sell_price": "最终售价", "cost_price": "成本价", "remark": "备注",
+            "create_time": "创建日期", "update_time": "更新日期"
+        }
+
+        scroll = ctk.CTkScrollableFrame(win, width=640, height=360, fg_color="#FFFFFF")
+        scroll.pack(fill="both", expand=True, padx=12, pady=6)
+
+        current_order = [c for c in self.columns if c != "select"]
+        editors = []
+
+        header_row = ctk.CTkFrame(scroll, fg_color="transparent")
+        header_row.grid(row=0, column=0, sticky="ew", padx=6, pady=(4, 8))
+        ctk.CTkLabel(header_row, text="列名", font=("微软雅黑", 15, "bold"), width=420, anchor="w").pack(side="left")
+        ctk.CTkLabel(header_row, text="顺序", font=("微软雅黑", 15, "bold"), width=80).pack(side="left", padx=10)
+
+        for i, key in enumerate(current_order, start=1):
+            row = ctk.CTkFrame(scroll, fg_color="transparent")
+            row.grid(row=i, column=0, sticky="ew", padx=6, pady=4)
+            ctk.CTkLabel(row, text=headers_map.get(key, key), font=("微软雅黑", 15), width=420, anchor="w").pack(side="left")
+            e = ctk.CTkEntry(row, width=80)
+            e.insert(0, str(i))
+            e.pack(side="left", padx=10)
+            editors.append((key, e, i))
+
+        def save_order():
+            order_list = []
+            for key, entry, original in editors:
+                val = entry.get().strip()
+                if val == "":
+                    messagebox.showwarning("提示", f"请为列“{headers_map.get(key, key)}”填写排序值。")
+                    return
+                try:
+                    num = int(val)
+                except Exception:
+                    messagebox.showwarning("提示", f"列“{headers_map.get(key, key)}”的排序值必须为整数。")
+                    return
+                order_list.append((num, original, key))
+            order_list.sort(key=lambda x: (x[0], x[1]))
+            ordered = [k for _, __, k in order_list]
+            for c in self.columns_default:
+                if c not in ordered:
+                    ordered.append(c)
+
+            try:
+                import os, json
+                from pathlib import Path
+                cfg_dir = Path(os.path.expanduser("~")) / "Yeah2Data"
+                cfg_file = cfg_dir / "settings.json"
+                cfg_dir.mkdir(parents=True, exist_ok=True)
+                settings_all = {}
+                if cfg_file.exists():
+                    with open(cfg_file, 'r', encoding='utf-8') as f:
+                        try:
+                            settings_all = json.load(f)
+                        except:
+                            settings_all = {}
+                settings_all["columns_order_order"] = ordered
+                with open(cfg_file, 'w', encoding='utf-8') as f:
+                    json.dump(settings_all, f, indent=4, ensure_ascii=False)
+                messagebox.showinfo("成功", "列顺序已保存。请重启应用以使设置生效。")
+                win.destroy()
+            except Exception as e:
+                messagebox.showerror("错误", str(e))
+
+        ctk.CTkButton(win, text="保存", width=140, fg_color="#2B6CB0", command=save_order).pack(pady=10)
 
     # ========== 刷新表格 ==========
     def refresh_table(self):
@@ -153,22 +270,23 @@ class OrderPage(ctk.CTkFrame):
                     detail_str = str(r[9])
             
             # 重组数据（不显示ID），处理 None 值
-            display_row = (
-                "" if r[1] is None else str(r[1]),   # order_no
-                "" if r[2] is None else str(r[2]),   # order_status
-                "" if r[3] is None else str(r[3]),   # customer_id
-                "" if r[4] is None else str(r[4]),   # customer_name
-                "" if r[5] is None else str(r[5]),   # address
-                "" if r[6] is None else str(r[6]),   # express_no
-                detail_str,                           # detail (格式化后)
-                "" if r[7] is None else str(r[7]),   # sell_price
-                "" if r[8] is None else str(r[8]),   # cost_price
-                "" if r[10] is None else str(r[10]), # remark
-                "" if r[11] is None else str(r[11]), # create_time
-                "" if r[12] is None else str(r[12])  # update_time
-            )
-            # 保存ID用于操作，但不显示
-            self.tree.insert("", "end", values=("☐",) + display_row, tags=(r[0],))
+            row_map = {
+                "order_no": "" if r[1] is None else str(r[1]),
+                "order_status": "" if r[2] is None else str(r[2]),
+                "customer_id": "" if r[3] is None else str(r[3]),
+                "customer_name": "" if r[4] is None else str(r[4]),
+                "address": "" if r[5] is None else str(r[5]),
+                "express_no": "" if r[6] is None else str(r[6]),
+                "detail": detail_str,
+                "sell_price": "" if r[7] is None else str(r[7]),
+                "final_sell_price": "" if not (len(r) > 13 and r[13] is not None) else str(r[13]),
+                "cost_price": "" if r[8] is None else str(r[8]),
+                "remark": "" if r[10] is None else str(r[10]),
+                "create_time": "" if r[11] is None else str(r[11]),
+                "update_time": "" if r[12] is None else str(r[12])
+            }
+            ordered_values = tuple(row_map.get(c, "") for c in self.columns if c != "select")
+            self.tree.insert("", "end", values=("☐",) + ordered_values, tags=(r[0],))
 
         self.page_label.configure(text=f"第 {self.current_page} / {self.total_pages} 页")
         self.total_label.configure(text=f"共 {total} 条记录")
@@ -244,6 +362,33 @@ class OrderPage(ctk.CTkFrame):
                 else:
                     f1, f2 = cfg["widget"]
                     v1, v2 = f1.get().strip(), f2.get().strip()
+                    # 强校验：数值/日期
+                    if key in ["sell_price", "cost_price"]:
+                        def _check_num(s):
+                            if not s:
+                                return True
+                            try:
+                                float(s)
+                                return True
+                            except:
+                                return False
+                        if (v1 and not _check_num(v1)) or (v2 and not _check_num(v2)):
+                            messagebox.showwarning("提示", f"{key} 请输入数字范围")
+                            return
+                    if key in ["create_time", "update_time"]:
+                        from datetime import datetime
+                        fmt = "%Y-%m-%d %H:%M:%S"
+                        def _check_dt(s):
+                            if not s:
+                                return True
+                            try:
+                                datetime.strptime(s, fmt)
+                                return True
+                            except:
+                                return False
+                        if (v1 and not _check_dt(v1)) or (v2 and not _check_dt(v2)):
+                            messagebox.showwarning("提示", f"{key} 日期格式需为 yyyy-MM-dd HH:mm:ss")
+                            return
                     if v1 or v2:
                         filters[key] = {"min": v1, "max": v2}
             self.search_filters = filters
@@ -825,6 +970,7 @@ class OrderPage(ctk.CTkFrame):
                 "detail": "[]",
                 "sell_price": 0,
                 "cost_price": 0,
+                "final_sell_price": 0,
                 "remark": ""
             }
         else:
@@ -851,6 +997,7 @@ class OrderPage(ctk.CTkFrame):
                 "detail": r[9] or "[]",
                 "sell_price": r[7] or 0,
                 "cost_price": r[8] or 0,
+                "final_sell_price": (r[13] if len(r) > 13 and r[13] is not None else 0),
                 "remark": r[10] or ""
             }
 
@@ -1123,8 +1270,14 @@ class OrderPage(ctk.CTkFrame):
         sell_price_entry.insert(0, str(data["sell_price"]))
         sell_price_entry.pack(side="left", padx=5)
 
+        ctk.CTkLabel(price_frame, text="订单最终售价：", font=("微软雅黑", 16, "bold")).pack(side="left", padx=10)
+        final_sell_price_entry = ctk.CTkEntry(price_frame, width=150, font=("微软雅黑", 16))
+        final_sell_price_entry.insert(0, str(data["final_sell_price"]))
+        final_sell_price_entry.pack(side="left", padx=5)
+
         entries["cost_price"] = cost_price_entry
         entries["sell_price"] = sell_price_entry
+        entries["final_sell_price"] = final_sell_price_entry
 
         # 自动计算价格
         def calculate_prices():
@@ -1198,9 +1351,8 @@ class OrderPage(ctk.CTkFrame):
             }
             detail_rows.append(row_data)
 
-            # 产品选择时自动填充价格
-            def on_product_select(event):
-                selected = product_combo.get()
+            # 产品选择时自动填充价格（采用 CTkComboBox 的 command 回调）
+            def on_product_select(selected):
                 if selected in inventory_map:
                     cost_entry.delete(0, "end")
                     cost_entry.insert(0, str(inventory_map[selected]["cost"]))
@@ -1208,7 +1360,7 @@ class OrderPage(ctk.CTkFrame):
                     sell_entry.insert(0, str(inventory_map[selected]["sell"]))
                     calculate_prices()
 
-            product_combo.bind("<<ComboboxSelected>>", on_product_select)
+            product_combo.configure(command=on_product_select)
             qty_entry.bind("<KeyRelease>", lambda e: calculate_prices())
             cost_entry.bind("<KeyRelease>", lambda e: calculate_prices())
             sell_entry.bind("<KeyRelease>", lambda e: calculate_prices())
@@ -1305,6 +1457,7 @@ class OrderPage(ctk.CTkFrame):
             try:
                 cost_price = float(entries["cost_price"].get() or 0)
                 sell_price = float(entries["sell_price"].get() or 0)
+                final_sell_price = float(entries["final_sell_price"].get() or 0)
             except ValueError:
                 messagebox.showwarning("提示", "价格格式不正确")
                 return
@@ -1315,8 +1468,8 @@ class OrderPage(ctk.CTkFrame):
                 self.cursor.execute('''
                     INSERT INTO "order" (
                         order_no, order_status, customer_id, customer_name, address, express_no,
-                        sell_price, cost_price, detail, remark, create_time, update_time
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        sell_price, cost_price, final_sell_price, detail, remark, create_time, update_time
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     entries["order_no"].get(),
                     "草稿",
@@ -1326,6 +1479,7 @@ class OrderPage(ctk.CTkFrame):
                     entries["express_no"].get(),
                     sell_price,
                     cost_price,
+                    final_sell_price,
                     detail_json,
                     entries["remark"].get(),
                     now,
@@ -1335,7 +1489,7 @@ class OrderPage(ctk.CTkFrame):
                 self.cursor.execute('''
                     UPDATE "order" SET
                         customer_id=?, customer_name=?, address=?, express_no=?,
-                        sell_price=?, cost_price=?, detail=?, remark=?, update_time=?
+                        sell_price=?, cost_price=?, final_sell_price=?, detail=?, remark=?, update_time=?
                     WHERE id=?
                 ''', (
                     customer_id,
@@ -1344,6 +1498,7 @@ class OrderPage(ctk.CTkFrame):
                     entries["express_no"].get(),
                     sell_price,
                     cost_price,
+                    final_sell_price,
                     detail_json,
                     entries["remark"].get(),
                     now,
