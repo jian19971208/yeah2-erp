@@ -88,7 +88,7 @@ class CustomerPage(ctk.CTkFrame):
         y_scroll.pack(side="right", fill="y")
         x_scroll.pack(side="bottom", fill="x")
         self.tree.pack(fill="both", expand=True)
-        self.tree.bind("<ButtonRelease-1>", self.toggle_select)
+        self.tree.bind("<Button-1>", self.toggle_select)
         self.tree.bind("<Button-3>", self.show_context_menu)  # 右键菜单
 
         # ======== 分页 ========
@@ -149,6 +149,20 @@ class CustomerPage(ctk.CTkFrame):
 
         self.page_label.configure(text=f"第 {self.current_page} / {self.total_pages} 页")
         self.total_label.configure(text=f"共 {total} 条记录")
+
+    def _get_checked_ids(self):
+        """从表格当前显示状态收集勾选的客户ID（更稳健，避免事件丢失）"""
+        checked = []
+        for item in self.tree.get_children():
+            vals = self.tree.item(item, "values")
+            if not vals:
+                continue
+            # vals[0] 是勾选列，vals[1] 是客户ID
+            if len(vals) > 1 and vals[0] == "☑":
+                cid = vals[1]
+                if cid:
+                    checked.append(cid)
+        return checked
 
     # ========== 重置 ==========
     def reset_filters(self):
@@ -350,18 +364,20 @@ class CustomerPage(ctk.CTkFrame):
         self._open_edit_window("add")
 
     def edit_customer(self):
-        if len(self.selected_items) != 1:
+        selected_ids = self._get_checked_ids()
+        if len(selected_ids) != 1:
             messagebox.showwarning("提示", "请勾选一条客户进行编辑。")
             return
-        cid = list(self.selected_items)[0]
+        cid = selected_ids[0]
         self._open_edit_window("edit", cid)
 
     def delete_customer(self):
-        if not self.selected_items:
+        selected_ids = self._get_checked_ids()
+        if not selected_ids:
             messagebox.showwarning("提示", "请至少勾选一条记录删除。")
             return
-        if messagebox.askyesno("确认删除", f"确定删除选中的 {len(self.selected_items)} 条记录？"):
-            for cid in self.selected_items:
+        if messagebox.askyesno("确认删除", f"确定删除选中的 {len(selected_ids)} 条记录？"):
+            for cid in selected_ids:
                 self.cursor.execute("DELETE FROM customer WHERE id=?", (cid,))
             self.conn.commit()
             self.selected_items.clear()

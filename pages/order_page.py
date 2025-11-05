@@ -82,7 +82,7 @@ class OrderPage(ctk.CTkFrame):
         y_scroll.pack(side="right", fill="y")
         x_scroll.pack(side="bottom", fill="x")
         self.tree.pack(fill="both", expand=True)
-        self.tree.bind("<ButtonRelease-1>", self.toggle_select)
+        self.tree.bind("<Button-1>", self.toggle_select)
         self.tree.bind("<Button-3>", self.show_context_menu)  # 右键菜单
 
         # ======== 分页 ========
@@ -172,6 +172,20 @@ class OrderPage(ctk.CTkFrame):
 
         self.page_label.configure(text=f"第 {self.current_page} / {self.total_pages} 页")
         self.total_label.configure(text=f"共 {total} 条记录")
+
+    def _get_checked_ids(self):
+        """从表格当前显示状态收集已勾选的订单ID（更稳健，避免事件丢失）"""
+        checked = []
+        for item in self.tree.get_children():
+            vals = self.tree.item(item, "values")
+            if not vals:
+                continue
+            if len(vals) > 0 and vals[0] == "☑":
+                tags = self.tree.item(item, "tags")
+                oid = tags[0] if tags else None
+                if oid:
+                    checked.append(oid)
+        return checked
 
     # ========== 重置 ==========
     def reset_filters(self):
@@ -379,27 +393,29 @@ class OrderPage(ctk.CTkFrame):
         self._open_edit_window("add")
 
     def edit_order(self):
-        if len(self.selected_items) != 1:
+        selected_ids = self._get_checked_ids()
+        if len(selected_ids) != 1:
             messagebox.showwarning("提示", "请勾选一条订单进行编辑。")
             return
-        oid = list(self.selected_items)[0]
+        oid = selected_ids[0]
         self._open_edit_window("edit", oid)
 
     def delete_order(self):
-        if not self.selected_items:
+        selected_ids = self._get_checked_ids()
+        if not selected_ids:
             messagebox.showwarning("提示", "请至少勾选一条记录删除。")
             return
-        
+
         # 检查是否都是草稿状态
-        for oid in self.selected_items:
+        for oid in selected_ids:
             self.cursor.execute('SELECT order_status FROM "order" WHERE id=?', (oid,))
             status = self.cursor.fetchone()
             if status and status[0] != "草稿":
                 messagebox.showerror("错误", f"订单 ID {oid} 状态为 {status[0]}，只能删除草稿状态的订单！")
                 return
         
-        if messagebox.askyesno("确认删除", f"确定删除选中的 {len(self.selected_items)} 条草稿订单？"):
-            for oid in self.selected_items:
+        if messagebox.askyesno("确认删除", f"确定删除选中的 {len(selected_ids)} 条草稿订单？"):
+            for oid in selected_ids:
                 self.cursor.execute('DELETE FROM "order" WHERE id=?', (oid,))
             self.conn.commit()
             self.selected_items.clear()
@@ -409,11 +425,12 @@ class OrderPage(ctk.CTkFrame):
     # ========== 订单操作窗口 ==========
     def open_order_operations(self):
         """打开订单操作窗口，根据当前状态显示可用操作"""
-        if len(self.selected_items) != 1:
+        selected_ids = self._get_checked_ids()
+        if len(selected_ids) != 1:
             messagebox.showwarning("提示", "请勾选一条订单进行操作。")
             return
         
-        oid = list(self.selected_items)[0]
+        oid = selected_ids[0]
         
         # 查询订单信息
         self.cursor.execute('SELECT order_status, order_no FROM "order" WHERE id=?', (oid,))

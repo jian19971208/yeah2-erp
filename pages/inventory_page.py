@@ -87,7 +87,7 @@ class InventoryPage(ctk.CTkFrame):
         y_scroll.pack(side="right", fill="y")
         x_scroll.pack(side="bottom", fill="x")
         self.tree.pack(fill="both", expand=True)
-        self.tree.bind("<ButtonRelease-1>", self.toggle_select)
+        self.tree.bind("<Button-1>", self.toggle_select)
         self.tree.bind("<Button-3>", self.show_context_menu)  # 右键菜单
 
         # ======== 分页 ========
@@ -188,6 +188,20 @@ class InventoryPage(ctk.CTkFrame):
             self.filter_frame.pack(fill="x", padx=15, pady=(0, 5))
         else:
             self.filter_frame.pack_forget()
+
+    def _get_checked_ids(self):
+        """从表格当前显示状态收集勾选的行ID（更稳健，避免事件丢失）"""
+        checked = []
+        for item in self.tree.get_children():
+            vals = self.tree.item(item, "values")
+            if not vals:
+                continue
+            if len(vals) > 0 and vals[0] == "☑":
+                tags = self.tree.item(item, "tags")
+                sid = tags[0] if tags else None
+                if sid:
+                    checked.append(sid)
+        return checked
 
     def reset_filters(self):
         self.search_filters.clear()
@@ -398,18 +412,20 @@ class InventoryPage(ctk.CTkFrame):
         self._open_edit_window("add")
 
     def edit_inventory(self):
-        if len(self.selected_items) != 1:
+        selected_ids = self._get_checked_ids()
+        if len(selected_ids) != 1:
             messagebox.showwarning("提示", "请勾选一条库存进行编辑。")
             return
-        sid = list(self.selected_items)[0]
+        sid = selected_ids[0]
         self._open_edit_window("edit", sid)
 
     def delete_inventory(self):
-        if not self.selected_items:
+        selected_ids = self._get_checked_ids()
+        if not selected_ids:
             messagebox.showwarning("提示", "请至少勾选一条记录删除。")
             return
-        if messagebox.askyesno("确认删除", f"确定删除选中的 {len(self.selected_items)} 条记录？"):
-            for sid in self.selected_items:
+        if messagebox.askyesno("确认删除", f"确定删除选中的 {len(selected_ids)} 条记录？"):
+            for sid in selected_ids:
                 self.cursor.execute("DELETE FROM inventory WHERE id=?", (sid,))
             self.conn.commit()
             self.selected_items.clear()
