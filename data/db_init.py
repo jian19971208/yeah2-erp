@@ -126,6 +126,16 @@ def init_database():
     except Exception as e:
         print(f"⚠️  迁移 customer.wrist_unit 失败：{e}")
 
+    # order 表：新增运费(shipping_fee)和包装费(packaging_fee)（REAL，可空）
+    try:
+        order_cols = get_table_columns("order")
+        if "shipping_fee" not in order_cols:
+            cursor.execute('ALTER TABLE "order" ADD COLUMN shipping_fee REAL')
+        if "packaging_fee" not in order_cols:
+            cursor.execute('ALTER TABLE "order" ADD COLUMN packaging_fee REAL')
+    except Exception as e:
+        print(f"⚠️  迁移 order.shipping_fee/packaging_fee 失败：{e}")
+
     conn.commit()
     conn.close()
     print(f"✅ 数据库已初始化：{db_path}")
