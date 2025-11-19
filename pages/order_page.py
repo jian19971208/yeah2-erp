@@ -60,8 +60,8 @@ class OrderPage(ctk.CTkFrame):
 
         self.columns_default = [
             "order_no", "order_status", "customer_id", "customer_name",
-            "address", "express_no", "detail", "sell_price", "final_sell_price", "cost_price",
-            "remark", "create_time", "update_time"
+            "address", "express_no", "detail", "sell_price", "shipping_fee", "packaging_fee", 
+            "final_sell_price", "cost_price", "remark", "create_time", "update_time"
         ]
         headers_map = {
             "order_no": "订单号",
@@ -72,6 +72,8 @@ class OrderPage(ctk.CTkFrame):
             "express_no": "快递单号",
             "detail": "明细",
             "sell_price": "销售价",
+            "shipping_fee": "运费",
+            "packaging_fee": "包装费",
             "final_sell_price": "最终售价",
             "cost_price": "成本价",
             "remark": "备注",
@@ -150,8 +152,8 @@ class OrderPage(ctk.CTkFrame):
         headers_map = {
             "order_no": "订单号", "order_status": "状态", "customer_id": "客户ID", "customer_name": "客户名称",
             "address": "地址", "express_no": "快递单号", "detail": "明细", "sell_price": "销售价",
-            "final_sell_price": "最终售价", "cost_price": "成本价", "remark": "备注",
-            "create_time": "创建日期", "update_time": "更新日期"
+            "shipping_fee": "运费", "packaging_fee": "包装费", "final_sell_price": "最终售价", 
+            "cost_price": "成本价", "remark": "备注", "create_time": "创建日期", "update_time": "更新日期"
         }
 
         scroll = ctk.CTkScrollableFrame(win, width=640, height=360, fg_color="#FFFFFF")
@@ -279,11 +281,13 @@ class OrderPage(ctk.CTkFrame):
                 "express_no": "" if r[6] is None else str(r[6]),
                 "detail": detail_str,
                 "sell_price": "" if r[7] is None else str(r[7]),
-                "final_sell_price": "" if not (len(r) > 13 and r[13] is not None) else str(r[13]),
                 "cost_price": "" if r[8] is None else str(r[8]),
                 "remark": "" if r[10] is None else str(r[10]),
                 "create_time": "" if r[11] is None else str(r[11]),
-                "update_time": "" if r[12] is None else str(r[12])
+                "update_time": "" if r[12] is None else str(r[12]),
+                "final_sell_price": "" if not (len(r) > 13 and r[13] is not None) else str(r[13]),
+                "shipping_fee": "" if not (len(r) > 14 and r[14] is not None) else str(r[14]),
+                "packaging_fee": "" if not (len(r) > 15 and r[15] is not None) else str(r[15])
             }
             ordered_values = tuple(row_map.get(c, "") for c in self.columns if c != "select")
             self.tree.insert("", "end", values=("☐",) + ordered_values, tags=(r[0],))
@@ -315,10 +319,10 @@ class OrderPage(ctk.CTkFrame):
     def open_search_window(self):
         win = ctk.CTkToplevel(self)
         win.title("搜索订单")
-        win.geometry("520x650")
+        win.geometry("520x750")
         win.grab_set()
 
-        scroll = ctk.CTkScrollableFrame(win, width=500, height=590, fg_color="#FFFFFF")
+        scroll = ctk.CTkScrollableFrame(win, width=500, height=680, fg_color="#FFFFFF")
         scroll.pack(fill="both", expand=True, padx=10, pady=10)
 
         search_fields = [
@@ -330,6 +334,9 @@ class OrderPage(ctk.CTkFrame):
             ("快递单号", "express_no", "text"),
             ("明细", "detail", "text"),
             ("销售价", "sell_price", "range"),
+            ("运费", "shipping_fee", "range"),
+            ("包装费", "packaging_fee", "range"),
+            ("最终售价", "final_sell_price", "range"),
             ("成本价", "cost_price", "range"),
             ("备注", "remark", "text"),
             ("创建时间", "create_time", "range"),
@@ -363,7 +370,7 @@ class OrderPage(ctk.CTkFrame):
                     f1, f2 = cfg["widget"]
                     v1, v2 = f1.get().strip(), f2.get().strip()
                     # 强校验：数值/日期
-                    if key in ["sell_price", "cost_price"]:
+                    if key in ["sell_price", "cost_price", "shipping_fee", "packaging_fee", "final_sell_price"]:
                         def _check_num(s):
                             if not s:
                                 return True
@@ -724,15 +731,16 @@ class OrderPage(ctk.CTkFrame):
         try:
             self.cursor.execute('BEGIN')
             
-            # 查询订单信息
-            self.cursor.execute('SELECT customer_id, sell_price FROM "order" WHERE id=?', (oid,))
+            # 查询订单信息，使用最终售价来更新客户购买金额
+            self.cursor.execute('SELECT customer_id, final_sell_price, sell_price FROM "order" WHERE id=?', (oid,))
             order_info = self.cursor.fetchone()
             
             if not order_info:
                 raise Exception("订单不存在！")
             
-            customer_id, sell_price = order_info
-            sell_price = float(sell_price or 0)
+            customer_id, final_sell_price, sell_price = order_info
+            # 优先使用最终售价，如果没有则使用销售价
+            actual_price = float(final_sell_price or sell_price or 0)
             now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
             # 更新客户购买记录
@@ -743,7 +751,7 @@ class OrderPage(ctk.CTkFrame):
                     purchase_times = COALESCE(purchase_times, 0) + 1,
                     update_time = ?
                 WHERE id = ?
-            ''', (now, sell_price, now, customer_id))
+            ''', (now, actual_price, now, customer_id))
             
             # 更新订单状态
             self.cursor.execute(
@@ -753,7 +761,7 @@ class OrderPage(ctk.CTkFrame):
             
             self.conn.commit()
             parent_window.destroy()
-            messagebox.showinfo("成功", f"订单已送达！\n客户购买记录已更新：\n- 购买次数 +1\n- 累计金额 +{sell_price}")
+            messagebox.showinfo("成功", f"订单已送达！\n客户购买记录已更新：\n- 购买次数 +1\n- 累计金额 +{actual_price:.2f}")
             self.refresh_table()
 
         except Exception as e:
@@ -871,15 +879,16 @@ class OrderPage(ctk.CTkFrame):
             try:
                 self.cursor.execute('BEGIN')
                 
-                # 查询订单信息
-                self.cursor.execute('SELECT customer_id, sell_price, detail FROM "order" WHERE id=?', (oid,))
+                # 查询订单信息，使用最终售价
+                self.cursor.execute('SELECT customer_id, final_sell_price, sell_price, detail FROM "order" WHERE id=?', (oid,))
                 order_info = self.cursor.fetchone()
                 
                 if not order_info:
                     raise Exception("订单不存在！")
                 
-                customer_id, sell_price, detail_json = order_info
-                sell_price = float(sell_price or 0)
+                customer_id, final_sell_price, sell_price, detail_json = order_info
+                # 优先使用最终售价，如果没有则使用销售价
+                actual_price = float(final_sell_price or sell_price or 0)
                 now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
                 rollback_purchase = rollback_purchase_var.get()
@@ -894,7 +903,7 @@ class OrderPage(ctk.CTkFrame):
                             purchase_times = COALESCE(purchase_times, 0) - 1,
                             update_time = ?
                         WHERE id = ?
-                    ''', (sell_price, now, customer_id))
+                    ''', (actual_price, now, customer_id))
                 
                 # 新增退货记录
                 if add_return:
@@ -905,7 +914,7 @@ class OrderPage(ctk.CTkFrame):
                             return_times = COALESCE(return_times, 0) + 1,
                             update_time = ?
                         WHERE id = ?
-                    ''', (now, sell_price, now, customer_id))
+                    ''', (now, actual_price, now, customer_id))
                 
                 # 回滚库存
                 if rollback_stock:
@@ -970,6 +979,8 @@ class OrderPage(ctk.CTkFrame):
                 "detail": "[]",
                 "sell_price": 0,
                 "cost_price": 0,
+                "shipping_fee": 0,
+                "packaging_fee": 0,
                 "final_sell_price": 0,
                 "remark": ""
             }
@@ -998,6 +1009,8 @@ class OrderPage(ctk.CTkFrame):
                 "sell_price": r[7] or 0,
                 "cost_price": r[8] or 0,
                 "final_sell_price": (r[13] if len(r) > 13 and r[13] is not None else 0),
+                "shipping_fee": (r[14] if len(r) > 14 and r[14] is not None else 0),
+                "packaging_fee": (r[15] if len(r) > 15 and r[15] is not None else 0),
                 "remark": r[10] or ""
             }
 
@@ -1260,23 +1273,102 @@ class OrderPage(ctk.CTkFrame):
         price_frame = ctk.CTkFrame(win, fg_color="#FFFFFF")
         price_frame.pack(fill="x", padx=10, pady=5)
 
-        ctk.CTkLabel(price_frame, text="订单成本价格：", font=("微软雅黑", 16, "bold")).pack(side="left", padx=10)
-        cost_price_entry = ctk.CTkEntry(price_frame, width=150, font=("微软雅黑", 16))
+        # 第一行：成本和销售价格
+        price_row1 = ctk.CTkFrame(price_frame, fg_color="transparent")
+        price_row1.pack(fill="x", pady=5)
+
+        ctk.CTkLabel(price_row1, text="订单成本价格：", font=("微软雅黑", 16, "bold")).pack(side="left", padx=10)
+        cost_price_entry = ctk.CTkEntry(price_row1, width=150, font=("微软雅黑", 16))
         cost_price_entry.insert(0, str(data["cost_price"]))
         cost_price_entry.pack(side="left", padx=5)
 
-        ctk.CTkLabel(price_frame, text="订单销售价格：", font=("微软雅黑", 16, "bold")).pack(side="left", padx=10)
-        sell_price_entry = ctk.CTkEntry(price_frame, width=150, font=("微软雅黑", 16))
+        ctk.CTkLabel(price_row1, text="订单销售价格：", font=("微软雅黑", 16, "bold")).pack(side="left", padx=10)
+        sell_price_entry = ctk.CTkEntry(price_row1, width=150, font=("微软雅黑", 16))
         sell_price_entry.insert(0, str(data["sell_price"]))
         sell_price_entry.pack(side="left", padx=5)
 
-        ctk.CTkLabel(price_frame, text="订单最终售价：", font=("微软雅黑", 16, "bold")).pack(side="left", padx=10)
-        final_sell_price_entry = ctk.CTkEntry(price_frame, width=150, font=("微软雅黑", 16))
+        # 第二行：运费和包装费
+        price_row2 = ctk.CTkFrame(price_frame, fg_color="transparent")
+        price_row2.pack(fill="x", pady=5)
+
+        ctk.CTkLabel(price_row2, text="运费：", font=("微软雅黑", 16, "bold")).pack(side="left", padx=10)
+        shipping_fee_entry = ctk.CTkEntry(price_row2, width=150, font=("微软雅黑", 16), placeholder_text="0")
+        shipping_fee_entry.insert(0, str(data["shipping_fee"]))
+        shipping_fee_entry.pack(side="left", padx=5)
+
+        ctk.CTkLabel(price_row2, text="包装费：", font=("微软雅黑", 16, "bold")).pack(side="left", padx=10)
+        packaging_fee_entry = ctk.CTkEntry(price_row2, width=150, font=("微软雅黑", 16), placeholder_text="0")
+        packaging_fee_entry.insert(0, str(data["packaging_fee"]))
+        packaging_fee_entry.pack(side="left", padx=5)
+
+        # 第三行：最终售价和自动计算按钮
+        price_row3 = ctk.CTkFrame(price_frame, fg_color="transparent")
+        price_row3.pack(fill="x", pady=5)
+
+        ctk.CTkLabel(price_row3, text="订单最终售价：", font=("微软雅黑", 16, "bold")).pack(side="left", padx=10)
+        final_sell_price_entry = ctk.CTkEntry(price_row3, width=150, font=("微软雅黑", 16))
         final_sell_price_entry.insert(0, str(data["final_sell_price"]))
         final_sell_price_entry.pack(side="left", padx=5)
 
+        # 自动计算按钮
+        def auto_calculate_final_price():
+            """自动计算最终售价并弹窗显示计算过程"""
+            try:
+                # 获取各项价格，进行数值校验
+                sell_price_str = sell_price_entry.get().strip()
+                shipping_fee_str = shipping_fee_entry.get().strip()
+                packaging_fee_str = packaging_fee_entry.get().strip()
+
+                # 校验并转换数值
+                try:
+                    sell_price = float(sell_price_str) if sell_price_str else 0
+                except ValueError:
+                    messagebox.showwarning("提示", "订单销售价格格式不正确，请输入有效数字！")
+                    return
+
+                try:
+                    shipping_fee = float(shipping_fee_str) if shipping_fee_str else 0
+                except ValueError:
+                    messagebox.showwarning("提示", "运费格式不正确，请输入有效数字！")
+                    return
+
+                try:
+                    packaging_fee = float(packaging_fee_str) if packaging_fee_str else 0
+                except ValueError:
+                    messagebox.showwarning("提示", "包装费格式不正确，请输入有效数字！")
+                    return
+
+                # 计算最终售价
+                final_price = sell_price + shipping_fee + packaging_fee
+
+                # 构建计算过程说明
+                calculation_details = f"""
+计算过程：
+
+订单销售价格：{sell_price:.2f} 元
++ 运费：{shipping_fee:.2f} 元
++ 包装费：{packaging_fee:.2f} 元
+━━━━━━━━━━━━━━━━━━━━
+= 最终售价：{final_price:.2f} 元
+"""
+
+                # 更新最终售价输入框
+                final_sell_price_entry.delete(0, "end")
+                final_sell_price_entry.insert(0, f"{final_price:.2f}")
+
+                # 弹窗显示计算过程
+                messagebox.showinfo("自动计算结果", calculation_details)
+
+            except Exception as e:
+                messagebox.showerror("错误", f"计算失败：{str(e)}")
+
+        ctk.CTkButton(price_row3, text="🧮 自动计算", width=120, fg_color="#38A169", 
+                     command=auto_calculate_final_price).pack(side="left", padx=10)
+
         entries["cost_price"] = cost_price_entry
         entries["sell_price"] = sell_price_entry
+        entries["shipping_fee"] = shipping_fee_entry
+        entries["packaging_fee"] = packaging_fee_entry
         entries["final_sell_price"] = final_sell_price_entry
 
         # 自动计算价格
@@ -1481,13 +1573,40 @@ class OrderPage(ctk.CTkFrame):
 
             detail_json = json.dumps(details, ensure_ascii=False)
             
-            # 获取价格
+            # 获取价格，进行数值校验
             try:
-                cost_price = float(entries["cost_price"].get() or 0)
-                sell_price = float(entries["sell_price"].get() or 0)
-                final_sell_price = float(entries["final_sell_price"].get() or 0)
+                cost_price_str = entries["cost_price"].get().strip()
+                cost_price = float(cost_price_str) if cost_price_str else 0
             except ValueError:
-                messagebox.showwarning("提示", "价格格式不正确")
+                messagebox.showwarning("提示", "订单成本价格格式不正确，请输入有效数字！")
+                return
+
+            try:
+                sell_price_str = entries["sell_price"].get().strip()
+                sell_price = float(sell_price_str) if sell_price_str else 0
+            except ValueError:
+                messagebox.showwarning("提示", "订单销售价格格式不正确，请输入有效数字！")
+                return
+
+            try:
+                shipping_fee_str = entries["shipping_fee"].get().strip()
+                shipping_fee = float(shipping_fee_str) if shipping_fee_str else 0
+            except ValueError:
+                messagebox.showwarning("提示", "运费格式不正确，请输入有效数字！")
+                return
+
+            try:
+                packaging_fee_str = entries["packaging_fee"].get().strip()
+                packaging_fee = float(packaging_fee_str) if packaging_fee_str else 0
+            except ValueError:
+                messagebox.showwarning("提示", "包装费格式不正确，请输入有效数字！")
+                return
+
+            try:
+                final_sell_price_str = entries["final_sell_price"].get().strip()
+                final_sell_price = float(final_sell_price_str) if final_sell_price_str else 0
+            except ValueError:
+                messagebox.showwarning("提示", "订单最终售价格式不正确，请输入有效数字！")
                 return
 
             now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1496,8 +1615,9 @@ class OrderPage(ctk.CTkFrame):
                 self.cursor.execute('''
                     INSERT INTO "order" (
                         order_no, order_status, customer_id, customer_name, address, express_no,
-                        sell_price, cost_price, final_sell_price, detail, remark, create_time, update_time
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        sell_price, cost_price, shipping_fee, packaging_fee, final_sell_price, 
+                        detail, remark, create_time, update_time
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     entries["order_no"].get(),
                     "草稿",
@@ -1507,6 +1627,8 @@ class OrderPage(ctk.CTkFrame):
                     entries["express_no"].get(),
                     sell_price,
                     cost_price,
+                    shipping_fee,
+                    packaging_fee,
                     final_sell_price,
                     detail_json,
                     entries["remark"].get(),
@@ -1517,7 +1639,8 @@ class OrderPage(ctk.CTkFrame):
                 self.cursor.execute('''
                     UPDATE "order" SET
                         customer_id=?, customer_name=?, address=?, express_no=?,
-                        sell_price=?, cost_price=?, final_sell_price=?, detail=?, remark=?, update_time=?
+                        sell_price=?, cost_price=?, shipping_fee=?, packaging_fee=?, 
+                        final_sell_price=?, detail=?, remark=?, update_time=?
                     WHERE id=?
                 ''', (
                     customer_id,
@@ -1526,6 +1649,8 @@ class OrderPage(ctk.CTkFrame):
                     entries["express_no"].get(),
                     sell_price,
                     cost_price,
+                    shipping_fee,
+                    packaging_fee,
                     final_sell_price,
                     detail_json,
                     entries["remark"].get(),
