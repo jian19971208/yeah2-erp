@@ -1017,9 +1017,9 @@ class OrderPage(ctk.CTkFrame):
             }
 
         # 查询库存产品列表
-        self.cursor.execute("SELECT product_code, cost_price, sell_price FROM inventory WHERE stock_status='启用'")
+        self.cursor.execute("SELECT product_code, cost_price, sell_price, size FROM inventory WHERE stock_status='启用'")
         inventory_data = self.cursor.fetchall()
-        inventory_map = {item[0]: {"cost": item[1], "sell": item[2]} for item in inventory_data}
+        inventory_map = {item[0]: {"cost": item[1], "sell": item[2], "size": item[3] or ""} for item in inventory_data}
         product_codes = list(inventory_map.keys())
 
         # ===== 顶部表单区域 =====
@@ -1312,6 +1312,11 @@ class OrderPage(ctk.CTkFrame):
                 product_combo.set(product_codes[0])
             product_combo.pack(side="left", padx=5)
 
+            # 尺寸展示框
+            ctk.CTkLabel(row_frame, text="尺寸:", font=("微软雅黑", 14)).pack(side="left", padx=5)
+            size_entry = ctk.CTkEntry(row_frame, width=100, state="readonly")
+            size_entry.pack(side="left", padx=5)
+
             # 使用数量
             ctk.CTkLabel(row_frame, text="数量:", font=("微软雅黑", 14)).pack(side="left", padx=5)
             qty_entry = ctk.CTkEntry(row_frame, width=80, placeholder_text="数量")
@@ -1345,19 +1350,28 @@ class OrderPage(ctk.CTkFrame):
             row_data = {
                 "frame": row_frame,
                 "product": product_combo,
+                "size": size_entry,
                 "qty": qty_entry,
                 "cost": cost_entry,
                 "sell": sell_entry
             }
             detail_rows.append(row_data)
 
-            # 产品选择时自动填充价格（采用 CTkComboBox 的 command 回调）
+            # 产品选择时自动填充价格和尺寸
             def on_product_select(selected):
                 if selected in inventory_map:
+                    # 填充成本和售价
                     cost_entry.delete(0, "end")
                     cost_entry.insert(0, str(inventory_map[selected]["cost"]))
                     sell_entry.delete(0, "end")
                     sell_entry.insert(0, str(inventory_map[selected]["sell"]))
+                    
+                    # 填充尺寸
+                    size_entry.configure(state="normal")
+                    size_entry.delete(0, "end")
+                    size_entry.insert(0, inventory_map[selected]["size"])
+                    size_entry.configure(state="readonly")
+                    
                     calculate_prices()
 
             product_combo.configure(command=on_product_select)
@@ -1365,10 +1379,24 @@ class OrderPage(ctk.CTkFrame):
             cost_entry.bind("<KeyRelease>", lambda e: calculate_prices())
             sell_entry.bind("<KeyRelease>", lambda e: calculate_prices())
 
-            # 如果没有传入数据且有库存，自动填充第一个产品的价格
+            # 如果没有传入数据且有库存，自动填充第一个产品的价格和尺寸
             if not detail_data and product_codes and product_combo.get() in inventory_map:
-                cost_entry.insert(0, str(inventory_map[product_combo.get()]["cost"]))
-                sell_entry.insert(0, str(inventory_map[product_combo.get()]["sell"]))
+                selected = product_combo.get()
+                cost_entry.insert(0, str(inventory_map[selected]["cost"]))
+                sell_entry.insert(0, str(inventory_map[selected]["sell"]))
+                
+                size_entry.configure(state="normal")
+                size_entry.insert(0, inventory_map[selected]["size"])
+                size_entry.configure(state="readonly")
+            
+            # 如果有传入数据，也需要填充尺寸
+            if detail_data:
+                product_code = detail_data.get("product_code", "")
+                if product_code in inventory_map:
+                    size_entry.configure(state="normal")
+                    size_entry.delete(0, "end")
+                    size_entry.insert(0, inventory_map[product_code]["size"])
+                    size_entry.configure(state="readonly")
 
         # 加载现有明细
         try:
